@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#172033">
+    <meta name="description" content="浏览 Demo 中可达的字形，并查看到达每个字典页的完整点击路径。">
+    <title>Demo 字典</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="app-bar">
+      <button class="brand" type="button" data-action="home" aria-label="返回首页">
+        <img class="brand-icon" src="icon.png" alt="" aria-hidden="true">
+        <span>Demo 字典</span>
+      </button>
+      <div id="top-actions" class="top-actions" aria-label="页面导航"></div>
+    </header>
+    <main id="app" tabindex="-1">
+      <section class="loading-card" aria-live="polite">
+        <span class="loading-mark" aria-hidden="true"></span>
+        <div>
+          <h1>正在整理字形</h1>
+          <p>稍等一下，字典马上就好。</p>
+        </div>
+      </section>
+    </main>
+    <div id="live" class="visually-hidden" aria-live="polite"></div>
+  </body>
+</html>
