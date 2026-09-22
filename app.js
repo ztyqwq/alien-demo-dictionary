@@ -12,6 +12,7 @@ let singleUseAtoms = [];
 let personalMeanings = new Map();
 let personalImportSummary = null;
 let showPersonalMeanings = false;
+let highlightUndeciphered = false;
 let saveImportStatus = null;
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
@@ -56,10 +57,12 @@ function loadPersonalState() {
       ? stored.importSummary
       : null;
     showPersonalMeanings = stored.showPersonalMeanings === true;
+    highlightUndeciphered = stored.highlightUndeciphered === true;
   } catch {
     personalMeanings = new Map();
     personalImportSummary = null;
     showPersonalMeanings = false;
+    highlightUndeciphered = false;
   }
 }
 
@@ -70,6 +73,7 @@ function persistPersonalState() {
       meanings: Object.fromEntries(personalMeanings),
       importSummary: personalImportSummary,
       showPersonalMeanings,
+      highlightUndeciphered,
     }));
     return true;
   } catch {
@@ -81,8 +85,38 @@ function personalMeaningForIndex(index) {
   return personalMeanings.get(data.save_key_tokens[index]) || "";
 }
 
+function isDecipheredMeaning(value) {
+  const normalized = String(value || "").trim();
+  return normalized.length > 0 && normalized !== "?" && normalized !== "？";
+}
+
+function isDecipheredIndex(index) {
+  return isDecipheredMeaning(personalMeaningForIndex(index));
+}
+
+function decipheredCount() {
+  return entries.reduce((count, _, index) => count + Number(isDecipheredIndex(index)), 0);
+}
+
+function markGlyphContainer(element, index) {
+  if (highlightUndeciphered && !isDecipheredIndex(index)) element.classList.add("undeciphered-highlight");
+  return element;
+}
+
+function appendPersonalCaption(container, index) {
+  if (!showPersonalMeanings) return;
+  const label = document.createElement("span");
+  label.className = "inline-personal-meaning";
+  if (isDecipheredIndex(index)) label.textContent = personalMeaningForIndex(index);
+  else {
+    label.classList.add("missing");
+    label.textContent = "?";
+  }
+  container.append(label);
+}
+
 function personalProgressText() {
-  const recognized = personalMeanings.size;
+  const recognized = decipheredCount();
   const percentage = data.count > 0 ? (recognized * 100 / data.count).toFixed(1) : "0.0";
   return `破译进度：${recognized} / ${data.count}（${percentage}%）`;
 }
@@ -153,11 +187,12 @@ async function importSaveFile(file) {
 
     personalMeanings = imported;
     showPersonalMeanings = true;
+    const recognized = [...imported.values()].filter(isDecipheredMeaning).length;
     personalImportSummary = {
       fileName: file.name,
       version: ["string", "number"].includes(typeof payload.version) ? String(payload.version) : "未知",
-      recognized: imported.size,
-      missing: data.count - imported.size,
+      recognized,
+      missing: data.count - recognized,
       ignored,
       importedAt: Date.now(),
     };
@@ -168,6 +203,9 @@ async function importSaveFile(file) {
         ? `已导入 ${imported.size} 条个人释义；${data.count - imported.size} 个字未标注。`
         : `已导入 ${imported.size} 条个人释义，但浏览器未允许持久保存。`,
     };
+    saveImportStatus.text = persisted
+      ? `已导入 ${recognized} 条有效个人释义；${data.count - recognized} 个字未破译。`
+      : `已导入 ${recognized} 条有效个人释义，但浏览器未能将它们持久保存。`;
   } catch (error) {
     console.error(error);
     saveImportStatus = { kind: "error", text: "无法读取这个存档：文件格式或版本不受支持。" };
@@ -204,6 +242,9 @@ function normalizedState(raw) {
   const scrollY = Number.isFinite(state.scrollY) && state.scrollY >= 0 ? state.scrollY : 0;
   if (state.view === "detail" && Number.isInteger(state.index) && state.index >= 0 && state.index < entries.length) {
     return { view: "detail", index: state.index, scrollY, depth };
+  }
+  if (state.view === "meanings") {
+    return { view: "meanings", query: typeof state.query === "string" ? state.query : "", scrollY, depth };
   }
   if (state.view === "components") {
     const showSingleNumerals = state.showSingleNumerals === true;
@@ -266,12 +307,43 @@ function goHome() {
   navigate({ view: "home", filter: "all" });
 }
 
+function goComponents() {
+  if (currentState.view === "components") return;
+  navigate({ view: "components", atoms: [], showSingleNumerals: false, excludeOtherAtoms: false });
+}
+
+function goMeaningSearch() {
+  if (currentState.view === "meanings") return;
+  navigate({ view: "meanings", query: "" });
+}
+
 function renderTopActions() {
   topActions.replaceChildren();
-  if (!currentState || currentState.view === "home") return;
-  const back = button("← 上一页", "nav-button", goBack);
-  back.disabled = currentState.depth === 0;
-  topActions.append(back, button("返回首页", "nav-button", goHome));
+  if (!currentState) return;
+  const componentSearch = button("按部件找字", "nav-button", goComponents);
+  componentSearch.setAttribute("aria-pressed", String(currentState.view === "components"));
+  const meaningSearch = button("按释义找字", "nav-button", goMeaningSearch);
+  meaningSearch.setAttribute("aria-pressed", String(currentState.view === "meanings"));
+  const importButton = button("导入存档", "nav-button", chooseSaveFile);
+  importButton.title = "存档路径参考：C:\\Users\\<你的用户名>\\AppData\\LocalLow\\Artless Games\\MessageFromAliens\\alienmessage1.sav（槽位 2/3 对应 alienmessage2.sav、alienmessage3.sav）";
+  const visibility = button(showPersonalMeanings ? "隐藏释义" : "显示释义", "nav-button", () => {
+    showPersonalMeanings = !showPersonalMeanings;
+    persistPersonalState();
+    render();
+  });
+  visibility.setAttribute("aria-pressed", String(showPersonalMeanings));
+  const highlight = button("高亮未破译", "nav-button highlight-toggle", () => {
+    highlightUndeciphered = !highlightUndeciphered;
+    persistPersonalState();
+    render();
+  });
+  highlight.setAttribute("aria-pressed", String(highlightUndeciphered));
+  topActions.append(componentSearch, meaningSearch, importButton, visibility, highlight);
+  if (currentState.view !== "home") {
+    const back = button("← 上一页", "nav-button", goBack);
+    back.disabled = currentState.depth === 0;
+    topActions.append(back, button("返回首页", "nav-button", goHome));
+  }
 }
 
 function makeGlyphCard(index) {
@@ -280,6 +352,7 @@ function makeGlyphCard(index) {
   card.className = "glyph-card";
   if (entries[index].not_word) card.classList.add("not-word");
   if (entries[index].startup_only) card.classList.add("startup-only");
+  markGlyphContainer(card, index);
   card.setAttribute(
     "aria-label",
     entries[index].startup_only
@@ -292,7 +365,7 @@ function makeGlyphCard(index) {
     const label = document.createElement("span");
     label.className = "personal-meaning-label";
     const meaning = personalMeaningForIndex(index);
-    if (meaning) {
+    if (isDecipheredMeaning(meaning)) {
       label.textContent = meaning;
     } else {
       label.classList.add("missing");
@@ -393,7 +466,7 @@ function renderHome() {
     control.setAttribute("aria-pressed", String(currentState.filter === value));
     filters.append(control);
   }
-  toolbar.append(componentButton, saveControls, makeNotWordKey(), makeStartupOnlyKey(), filters);
+  toolbar.append(makeNotWordKey(), makeStartupOnlyKey(), filters);
   heading.append(toolbar);
   shell.append(heading);
   const status = saveImportStatus || (personalImportSummary ? {
@@ -413,7 +486,7 @@ function renderHome() {
     progressText.textContent = personalProgressText();
     const progress = document.createElement("progress");
     progress.max = data.count;
-    progress.value = personalMeanings.size;
+    progress.value = decipheredCount();
     progress.setAttribute("aria-label", personalProgressText());
     progressCard.append(progressText, progress);
     shell.append(progressCard);
@@ -468,6 +541,7 @@ function renderComponents() {
     atomButton.className = "atom-button";
     if (entries[atom].not_word) atomButton.classList.add("not-word");
     if (entries[atom].startup_only) atomButton.classList.add("startup-only");
+    markGlyphContainer(atomButton, atom);
     atomButton.setAttribute(
       "aria-label",
       entries[atom].startup_only
@@ -478,6 +552,7 @@ function renderComponents() {
     );
     atomButton.setAttribute("aria-pressed", String(selected.has(atom)));
     atomButton.append(glyphImage(atom));
+    appendPersonalCaption(atomButton, atom);
     atomButton.addEventListener("click", () => {
       const next = new Set(currentState.atoms);
       if (next.has(atom)) next.delete(atom); else next.add(atom);
@@ -557,12 +632,61 @@ function renderComponents() {
   app.replaceChildren(shell);
 }
 
+function renderMeaningSearch() {
+  const shell = document.createElement("section");
+  shell.className = "page-shell search-layout";
+  const heading = document.createElement("div");
+  heading.innerHTML = `
+    <p class="eyebrow">个人释义查询</p>
+    <h1>按释义找字</h1>
+    <p class="summary">查找个人释义中包含指定文字的所有字。</p>`;
+  const form = document.createElement("form");
+  form.className = "meaning-search-form section-card";
+  const input = document.createElement("input");
+  input.type = "search";
+  input.value = currentState.query;
+  input.placeholder = "输入释义中的文字";
+  input.setAttribute("aria-label", "释义关键词");
+  const submit = button("查找", "utility-button", () => {});
+  submit.type = "submit";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    replaceCurrent({ query: input.value, scrollY: 0 });
+  });
+  form.append(input, submit);
+
+  const results = document.createElement("section");
+  results.className = "section-card";
+  const query = currentState.query.trim().toLocaleLowerCase();
+  const matches = query
+    ? sortByPathLength(entries.flatMap((_, index) => {
+      const meaning = personalMeaningForIndex(index);
+      return isDecipheredMeaning(meaning) && meaning.toLocaleLowerCase().includes(query) ? [index] : [];
+    }))
+    : [];
+  const title = document.createElement("h2");
+  title.textContent = query ? `找到 ${matches.length} 个字` : "查询结果";
+  results.append(title);
+  if (query && matches.length) results.append(makeGlyphGrid(matches));
+  else {
+    const empty = document.createElement("div");
+    empty.className = "empty-results";
+    empty.textContent = query ? "没有找到包含这段释义的字。" : "输入文字后开始查找。";
+    results.append(empty);
+  }
+  shell.append(heading, form, results);
+  app.replaceChildren(shell);
+  requestAnimationFrame(() => input.focus());
+}
+
 function makeMiniGlyph(index) {
   const control = document.createElement("button");
   control.type = "button";
   control.className = "mini-glyph";
+  markGlyphContainer(control, index);
   control.setAttribute("aria-label", "查看路径中的这个字");
   control.append(glyphImage(index));
+  appendPersonalCaption(control, index);
   control.addEventListener("click", () => navigate({ view: "detail", index }));
   return control;
 }
@@ -571,8 +695,10 @@ function makeDictionaryGlyph(index) {
   const control = document.createElement("button");
   control.type = "button";
   control.className = "dictionary-glyph";
+  markGlyphContainer(control, index);
   control.setAttribute("aria-label", "查看释义中这个字的字典页");
   control.append(glyphImage(index));
+  appendPersonalCaption(control, index);
   control.addEventListener("click", () => navigate({ view: "detail", index }));
   return control;
 }
@@ -722,7 +848,9 @@ function renderDetail() {
   hero.className = "detail-hero";
   const target = document.createElement("div");
   target.className = "target-glyph";
+  markGlyphContainer(target, currentState.index);
   target.append(glyphImage(currentState.index));
+  appendPersonalCaption(target, currentState.index);
   const heroText = document.createElement("div");
   heroText.innerHTML = `
     <h2>目标字</h2>
@@ -770,6 +898,7 @@ function renderDetail() {
 function render() {
   renderTopActions();
   if (currentState.view === "components") renderComponents();
+  else if (currentState.view === "meanings") renderMeaningSearch();
   else if (currentState.view === "detail") renderDetail();
   else renderHome();
   const desiredScroll = currentState.scrollY ?? 0;
