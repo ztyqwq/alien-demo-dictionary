@@ -9,9 +9,17 @@ let entries = [];
 let currentState = null;
 let reusableAtoms = [];
 let singleUseAtoms = [];
+let personalMeanings = new Map();
+let personalImportSummary = null;
+let showPersonalMeanings = false;
+let saveImportStatus = null;
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
+const personalStorageKey = "alien-demo-dictionary:personal-meanings:v1";
+const saveEntryNamespace = "message-from-aliens:glyph-entry:runtime-v1";
+const saveEncryptionKey = "terrible_artwork";
+const saveEncryptionIv = "wedidn'tplaytest";
 let atlasRows = 1;
 
 function glyphImage(index, className = "glyph-image") {
@@ -32,6 +40,144 @@ function button(label, className, action) {
   element.textContent = label;
   element.addEventListener("click", action);
   return element;
+}
+
+function loadPersonalState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(personalStorageKey) || "null");
+    if (!stored || stored.schema !== 1 || typeof stored.meanings !== "object" || Array.isArray(stored.meanings)) return;
+    const validTokens = new Set(data.save_key_tokens);
+    personalMeanings = new Map(
+      Object.entries(stored.meanings).filter(([token, value]) => (
+        validTokens.has(token) && typeof value === "string" && value.length > 0
+      )),
+    );
+    personalImportSummary = stored.importSummary && typeof stored.importSummary === "object"
+      ? stored.importSummary
+      : null;
+    showPersonalMeanings = stored.showPersonalMeanings === true;
+  } catch {
+    personalMeanings = new Map();
+    personalImportSummary = null;
+    showPersonalMeanings = false;
+  }
+}
+
+function persistPersonalState() {
+  try {
+    localStorage.setItem(personalStorageKey, JSON.stringify({
+      schema: 1,
+      meanings: Object.fromEntries(personalMeanings),
+      importSummary: personalImportSummary,
+      showPersonalMeanings,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function personalMeaningForIndex(index) {
+  return personalMeanings.get(data.save_key_tokens[index]) || "";
+}
+
+function bytesFromBase64(text) {
+  const normalized = text.trim().replace(/\s+/g, "");
+  if (!normalized || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) throw new Error("invalid base64");
+  const binary = atob(normalized);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  if (!bytes.length || bytes.length % 16 !== 0) throw new Error("invalid encrypted length");
+  return bytes;
+}
+
+async function decryptSave(text) {
+  if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is unavailable");
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(saveEncryptionKey),
+    { name: "AES-CBC" },
+    false,
+    ["decrypt"],
+  );
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-CBC", iv: encoder.encode(saveEncryptionIv) },
+    key,
+    bytesFromBase64(text),
+  );
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(decrypted));
+}
+
+async function saveTokenForKey(key) {
+  const normalized = String(key).replaceAll(":", "");
+  const bytes = new TextEncoder().encode(`${saveEntryNamespace}\0${normalized}`);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest.slice(0, 8)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function importSaveFile(file) {
+  saveImportStatus = { kind: "loading", text: "正在读取存档…" };
+  render();
+  try {
+    if (!file || file.size > 5 * 1024 * 1024) throw new Error("save file is missing or too large");
+    const payload = await decryptSave(await file.text());
+    if (
+      !payload
+      || typeof payload !== "object"
+      || !payload.dict
+      || typeof payload.dict !== "object"
+      || Array.isArray(payload.dict)
+    ) throw new Error("save dictionary is missing");
+
+    const validTokens = new Set(data.save_key_tokens);
+    const imported = new Map();
+    let ignored = 0;
+    const rows = await Promise.all(Object.entries(payload.dict).map(async ([key, value]) => ({
+      token: await saveTokenForKey(key),
+      value,
+    })));
+    for (const row of rows) {
+      if (!validTokens.has(row.token)) {
+        ignored += 1;
+        continue;
+      }
+      if (typeof row.value === "string" && row.value.length > 0) imported.set(row.token, row.value);
+    }
+
+    personalMeanings = imported;
+    showPersonalMeanings = true;
+    personalImportSummary = {
+      fileName: file.name,
+      version: ["string", "number"].includes(typeof payload.version) ? String(payload.version) : "未知",
+      recognized: imported.size,
+      missing: data.count - imported.size,
+      ignored,
+      importedAt: Date.now(),
+    };
+    const persisted = persistPersonalState();
+    saveImportStatus = {
+      kind: persisted ? "success" : "warning",
+      text: persisted
+        ? `已导入 ${imported.size} 条个人释义；${data.count - imported.size} 个字未标注。`
+        : `已导入 ${imported.size} 条个人释义，但浏览器未允许持久保存。`,
+    };
+  } catch (error) {
+    console.error(error);
+    saveImportStatus = { kind: "error", text: "无法读取这个存档：文件格式或版本不受支持。" };
+  }
+  render();
+}
+
+function chooseSaveFile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".sav,.backup";
+  input.addEventListener("change", () => {
+    const [file] = input.files || [];
+    if (file) importSaveFile(file);
+  });
+  input.click();
 }
 
 function defaultState() {
@@ -135,6 +281,20 @@ function makeGlyphCard(index) {
       : (entries[index].not_word ? "查看这个非正式字的到达路径" : "查看这个字的到达路径"),
   );
   card.append(glyphImage(index));
+  if (showPersonalMeanings) {
+    card.classList.add("shows-personal-meaning");
+    const label = document.createElement("span");
+    label.className = "personal-meaning-label";
+    const meaning = personalMeaningForIndex(index);
+    if (meaning) {
+      label.textContent = meaning;
+    } else {
+      label.classList.add("missing");
+      label.textContent = "?";
+      label.title = "存档中未标注这个字";
+    }
+    card.append(label);
+  }
   card.addEventListener("click", () => navigate({ view: "detail", index }));
   return card;
 }
@@ -143,6 +303,7 @@ function makeNotWordKey() {
   const key = document.createElement("span");
   key.className = "not-word-key";
   key.textContent = "黄底：非正式字";
+  key.title = "游戏里写出其不是字";
   return key;
 }
 
@@ -150,6 +311,7 @@ function makeStartupOnlyKey() {
   const key = document.createElement("span");
   key.className = "startup-only-key";
   key.textContent = "绿底：仅启动左页可达";
+  key.title = "游戏开始时左边会有一个问好页，只能通过这个页进入该字";
   return key;
 }
 
@@ -193,6 +355,25 @@ function renderHome() {
     showSingleNumerals: false,
     excludeOtherAtoms: false,
   }));
+  const saveControls = document.createElement("div");
+  saveControls.className = "save-controls";
+  const importButton = button("导入存档", "utility-button save-import-button", chooseSaveFile);
+  importButton.title = "存档路径参考：C:\\Users\\<你的用户名>\\AppData\\LocalLow\\Artless Games\\MessageFromAliens\\alienmessage1.sav（槽位 2/3 对应 alienmessage2.sav、alienmessage3.sav）";
+  const visibilityOption = document.createElement("label");
+  visibilityOption.className = "toggle-option personal-visibility-toggle";
+  const visibilityCheckbox = document.createElement("input");
+  visibilityCheckbox.type = "checkbox";
+  visibilityCheckbox.checked = showPersonalMeanings;
+  visibilityCheckbox.addEventListener("change", () => {
+    showPersonalMeanings = visibilityCheckbox.checked;
+    const persisted = persistPersonalState();
+    if (!persisted) saveImportStatus = { kind: "warning", text: "浏览器未允许保存显示设置。" };
+    render();
+  });
+  const visibilityText = document.createElement("span");
+  visibilityText.textContent = "显示个人释义";
+  visibilityOption.append(visibilityCheckbox, visibilityText);
+  saveControls.append(importButton, visibilityOption);
   const filters = document.createElement("div");
   filters.className = "filter-group";
   filters.setAttribute("aria-label", "字形范围");
@@ -206,9 +387,20 @@ function renderHome() {
     control.setAttribute("aria-pressed", String(currentState.filter === value));
     filters.append(control);
   }
-  toolbar.append(componentButton, makeNotWordKey(), makeStartupOnlyKey(), filters);
+  toolbar.append(componentButton, saveControls, makeNotWordKey(), makeStartupOnlyKey(), filters);
   heading.append(toolbar);
-  shell.append(heading, makeGlyphGrid(filterIndexes(currentState.filter)));
+  shell.append(heading);
+  const status = saveImportStatus || (personalImportSummary ? {
+    kind: "success",
+    text: `已载入 ${personalImportSummary.fileName}：${personalImportSummary.recognized} 条个人释义，${personalImportSummary.missing} 个字未标注，存档版本 ${personalImportSummary.version}。`,
+  } : null);
+  if (status) {
+    const statusLine = document.createElement("p");
+    statusLine.className = `save-import-status ${status.kind}`;
+    statusLine.textContent = status.text;
+    shell.append(statusLine);
+  }
+  shell.append(makeGlyphGrid(filterIndexes(currentState.filter)));
   app.replaceChildren(shell);
 }
 
@@ -442,6 +634,41 @@ function makeDictionaryPanel(item) {
   return panel;
 }
 
+function makePersonalMeaningPanel(index) {
+  const panel = document.createElement("section");
+  panel.className = "section-card personal-meaning-panel";
+
+  const heading = document.createElement("div");
+  heading.className = "personal-meaning-heading";
+  const title = document.createElement("h2");
+  title.textContent = "个人释义";
+  const note = document.createElement("span");
+  note.className = "personal-save-note";
+  note.textContent = "保存在此浏览器，不会写回游戏存档";
+  heading.append(title, note);
+
+  const editor = document.createElement("textarea");
+  editor.className = "personal-meaning-editor";
+  editor.rows = 3;
+  editor.maxLength = 300;
+  editor.value = personalMeaningForIndex(index);
+  editor.placeholder = "?";
+  editor.setAttribute("aria-label", "编辑这个字的个人释义");
+  editor.addEventListener("input", () => {
+    const token = data.save_key_tokens[index];
+    if (editor.value.length > 0) personalMeanings.set(token, editor.value);
+    else personalMeanings.delete(token);
+    const persisted = persistPersonalState();
+    note.textContent = persisted
+      ? "已保存到此浏览器，不会写回游戏存档"
+      : "浏览器未允许保存这次修改";
+    note.classList.toggle("error", !persisted);
+  });
+
+  panel.append(heading, editor);
+  return panel;
+}
+
 function chipFromParts(kind, parts) {
   const chip = document.createElement("span");
   chip.className = `path-chip ${kind}`;
@@ -516,7 +743,9 @@ function renderDetail() {
   done.className = "completion-note";
   done.textContent = "到达目标字的字典页";
   panel.append(legend, flow, done);
-  shell.append(titleRow, hero, makeDictionaryPanel(item), panel);
+  shell.append(titleRow, hero, makeDictionaryPanel(item));
+  if (showPersonalMeanings) shell.append(makePersonalMeaningPanel(currentState.index));
+  shell.append(panel);
   app.replaceChildren(shell);
 }
 
@@ -542,10 +771,17 @@ fetch("data/app-data.json")
     return response.json();
   })
   .then((loaded) => {
-    if (!loaded || !Array.isArray(loaded.entries) || loaded.entries.length !== loaded.count) throw new Error("字典数据不完整");
+    if (
+      !loaded
+      || !Array.isArray(loaded.entries)
+      || loaded.entries.length !== loaded.count
+      || !Array.isArray(loaded.save_key_tokens)
+      || loaded.save_key_tokens.length !== loaded.count
+    ) throw new Error("字典数据不完整");
     data = loaded;
     entries = loaded.entries;
     atlasRows = Math.ceil(entries.length / atlasColumns);
+    loadPersonalState();
     const atomUsageCounts = new Map(loaded.atom_indices.map((atom) => [atom, 0]));
     for (const entry of entries) {
       for (const atom of entry.atoms) {
