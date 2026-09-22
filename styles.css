@@ -339,6 +339,12 @@ h2 {
   color: var(--muted);
 }
 
+.palette-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .toggle-option {
   display: inline-flex;
   min-height: 2.55rem;

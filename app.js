@@ -35,7 +35,15 @@ function button(label, className, action) {
 }
 
 function defaultState() {
-  return { view: "home", filter: "all", atoms: [], showSingleNumerals: false, scrollY: 0, depth: 0 };
+  return {
+    view: "home",
+    filter: "all",
+    atoms: [],
+    showSingleNumerals: false,
+    excludeOtherAtoms: false,
+    scrollY: 0,
+    depth: 0,
+  };
 }
 
 function normalizedState(raw) {
@@ -47,6 +55,7 @@ function normalizedState(raw) {
   }
   if (state.view === "components") {
     const showSingleNumerals = state.showSingleNumerals === true;
+    const excludeOtherAtoms = state.excludeOtherAtoms === true;
     const hideableAtoms = new Set(data.hideable_number_atom_indices || []);
     const atoms = Array.isArray(state.atoms)
       ? state.atoms.filter((value) => (
@@ -55,7 +64,14 @@ function normalizedState(raw) {
         && (showSingleNumerals || !hideableAtoms.has(value))
       ))
       : [];
-    return { view: "components", atoms: [...new Set(atoms)], showSingleNumerals, scrollY, depth };
+    return {
+      view: "components",
+      atoms: [...new Set(atoms)],
+      showSingleNumerals,
+      excludeOtherAtoms,
+      scrollY,
+      depth,
+    };
   }
   return {
     view: "home",
@@ -171,7 +187,12 @@ function renderHome() {
 
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
-  const componentButton = button("按部件找字", "utility-button", () => navigate({ view: "components", atoms: [], showSingleNumerals: false }));
+  const componentButton = button("按部件找字", "utility-button", () => navigate({
+    view: "components",
+    atoms: [],
+    showSingleNumerals: false,
+    excludeOtherAtoms: false,
+  }));
   const filters = document.createElement("div");
   filters.className = "filter-group";
   filters.setAttribute("aria-label", "字形范围");
@@ -214,7 +235,22 @@ function renderComponents() {
   selectionCount.textContent = `已选 ${selected.size} 个`;
   const clear = button("清空", "clear-button", () => replaceCurrent({ atoms: [], scrollY: 0 }));
   clear.disabled = selected.size === 0;
-  paletteHeading.append(paletteTitle, selectionCount, makeNotWordKey(), clear);
+  const exclusionOption = document.createElement("label");
+  exclusionOption.className = "toggle-option exact-atoms-toggle";
+  exclusionOption.title = "只保留完全由已选部首组成的字；重复使用已选部首不受影响";
+  const exclusionCheckbox = document.createElement("input");
+  exclusionCheckbox.type = "checkbox";
+  exclusionCheckbox.checked = currentState.excludeOtherAtoms;
+  exclusionCheckbox.addEventListener("change", () => {
+    replaceCurrent({ excludeOtherAtoms: exclusionCheckbox.checked, scrollY: window.scrollY });
+  });
+  const exclusionText = document.createElement("span");
+  exclusionText.textContent = "排除其他部首";
+  exclusionOption.append(exclusionCheckbox, exclusionText);
+  const paletteActions = document.createElement("div");
+  paletteActions.className = "palette-actions";
+  paletteActions.append(exclusionOption, clear);
+  paletteHeading.append(paletteTitle, selectionCount, makeNotWordKey(), paletteActions);
 
   function makeAtomButton(atom) {
     const atomButton = document.createElement("button");
@@ -290,12 +326,19 @@ function renderComponents() {
     empty.textContent = "先从上面选择一个组成部件";
     resultsCard.append(empty);
   } else {
-    const matches = sortByPathLength(entries.flatMap((item, index) => (
-      [...selected].every((atom) => item.atoms.includes(atom)) ? [index] : []
-    )));
+    const matches = sortByPathLength(entries.flatMap((item, index) => {
+      const containsEverySelectedAtom = [...selected].every((atom) => item.atoms.includes(atom));
+      const containsNoOtherAtom = !currentState.excludeOtherAtoms
+        || item.atoms.every((atom) => selected.has(atom));
+      return containsEverySelectedAtom && containsNoOtherAtom ? [index] : [];
+    }));
     const note = document.createElement("p");
     note.className = "result-note";
-    note.textContent = matches.length ? `找到 ${matches.length} 个字，点开可查看完整路径。` : "没有找到同时包含这些部件的字。";
+    note.textContent = matches.length
+      ? `找到 ${matches.length} 个字，点开可查看完整路径。`
+      : currentState.excludeOtherAtoms
+        ? "没有找到只使用这些部首的字。"
+        : "没有找到同时包含这些部件的字。";
     resultsCard.append(note);
     if (matches.length) resultsCard.append(makeGlyphGrid(matches));
   }
