@@ -81,6 +81,12 @@ function personalMeaningForIndex(index) {
   return personalMeanings.get(data.save_key_tokens[index]) || "";
 }
 
+function personalProgressText() {
+  const recognized = personalMeanings.size;
+  const percentage = data.count > 0 ? (recognized * 100 / data.count).toFixed(1) : "0.0";
+  return `破译进度：${recognized} / ${data.count}（${percentage}%）`;
+}
+
 function bytesFromBase64(text) {
   const normalized = text.trim().replace(/\s+/g, "");
   if (!normalized || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) throw new Error("invalid base64");
@@ -399,6 +405,18 @@ function renderHome() {
     statusLine.className = `save-import-status ${status.kind}`;
     statusLine.textContent = status.text;
     shell.append(statusLine);
+  }
+  if (personalImportSummary) {
+    const progressCard = document.createElement("div");
+    progressCard.className = "save-progress";
+    const progressText = document.createElement("strong");
+    progressText.textContent = personalProgressText();
+    const progress = document.createElement("progress");
+    progress.max = data.count;
+    progress.value = personalMeanings.size;
+    progress.setAttribute("aria-label", personalProgressText());
+    progressCard.append(progressText, progress);
+    shell.append(progressCard);
   }
   shell.append(makeGlyphGrid(filterIndexes(currentState.filter)));
   app.replaceChildren(shell);
