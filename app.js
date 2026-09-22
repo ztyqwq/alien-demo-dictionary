@@ -12,7 +12,7 @@ let singleUseAtoms = [];
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
-const atlasRows = 42;
+let atlasRows = 1;
 
 function glyphImage(index, className = "glyph-image") {
   const glyph = document.createElement("span");
@@ -20,6 +20,7 @@ function glyphImage(index, className = "glyph-image") {
   glyph.setAttribute("aria-hidden", "true");
   const column = index % atlasColumns;
   const row = Math.floor(index / atlasColumns);
+  glyph.style.backgroundSize = `${atlasColumns * 100}% ${atlasRows * 100}%`;
   glyph.style.backgroundPosition = `${column * 100 / (atlasColumns - 1)}% ${row * 100 / (atlasRows - 1)}%`;
   return glyph;
 }
@@ -501,6 +502,7 @@ fetch("data/app-data.json")
     if (!loaded || !Array.isArray(loaded.entries) || loaded.entries.length !== loaded.count) throw new Error("字典数据不完整");
     data = loaded;
     entries = loaded.entries;
+    atlasRows = Math.ceil(entries.length / atlasColumns);
     const atomUsageCounts = new Map(loaded.atom_indices.map((atom) => [atom, 0]));
     for (const entry of entries) {
       for (const atom of entry.atoms) {
