@@ -982,6 +982,67 @@ h2 {
   content: "";
 }
 
+.occurrences-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.occurrences-heading {
+  margin-bottom: 0;
+}
+
+.occurrences-heading .selection-count {
+  margin-right: 0;
+  margin-left: auto;
+}
+
+.occurrences-note {
+  margin: -0.25rem 0 0;
+  color: var(--muted);
+}
+
+.occurrences-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.occurrence-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--panel-subtle);
+}
+
+.occurrence-sentence {
+  min-height: 4.7rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--panel);
+}
+
+.occurrence-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0.9rem 0.85rem;
+  color: var(--muted);
+}
+
+.occurrence-source-type {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.occurrence-source > .path-flow {
+  flex-basis: 100%;
+  margin-top: 0.25rem;
+}
+
+.occurrences-more {
+  justify-self: center;
+}
+
 .loading-card,
 .error-card {
   display: flex;

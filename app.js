@@ -830,6 +830,104 @@ function chipFromParts(kind, parts) {
   return chip;
 }
 
+function makePathFlow(path, dictionaryChain = []) {
+  const flow = document.createElement("div");
+  flow.className = "path-flow";
+  const start = document.createElement("span");
+  start.className = "path-chip start";
+  start.textContent = path.start === "startup_left" ? "启动时左页" : "右侧首页";
+  const nodes = [start];
+  for (const action of path.actions) nodes.push(chipFromParts("left", action.label));
+  for (const glyph of dictionaryChain) nodes.push(chipFromParts("right", [{ glyph }]));
+  nodes.forEach((node, index) => {
+    if (index > 0) {
+      const arrow = document.createElement("span");
+      arrow.className = "path-arrow";
+      arrow.setAttribute("aria-hidden", "true");
+      arrow.textContent = "→";
+      flow.append(arrow);
+    }
+    flow.append(node);
+  });
+  return flow;
+}
+
+function makeOccurrenceCard(record) {
+  const card = document.createElement("article");
+  card.className = "occurrence-card";
+
+  const sentence = document.createElement("div");
+  sentence.className = "occurrence-sentence dictionary-meaning-glyphs";
+  appendDictionaryParts(sentence, record.sentence);
+
+  const source = document.createElement("div");
+  source.className = "occurrence-source";
+  const sourceLabel = document.createElement("strong");
+  sourceLabel.textContent = "出处：";
+  source.append(sourceLabel);
+  if (record.source.kind === "dictionary_entry") {
+    const sourceType = document.createElement("span");
+    sourceType.className = "occurrence-source-type";
+    sourceType.textContent = "单字页";
+    source.append(sourceType, makeDictionaryGlyph(record.source.entry));
+  } else {
+    const sourceType = document.createElement("span");
+    sourceType.className = "occurrence-source-type";
+    sourceType.textContent = record.source.kind === "right_page" ? "右侧页" : "左侧普通字典页";
+    source.append(sourceType, makePathFlow(record.source));
+  }
+
+  card.append(sentence, source);
+  return card;
+}
+
+function makeOccurrencesPanel(item) {
+  const references = item.occurrences || [];
+  const panel = document.createElement("section");
+  panel.className = "section-card occurrences-panel";
+
+  const heading = document.createElement("div");
+  heading.className = "section-heading occurrences-heading";
+  const title = document.createElement("h2");
+  title.textContent = "出处索引";
+  const count = document.createElement("span");
+  count.className = "selection-count";
+  count.textContent = `共 ${references.length} 处`;
+  heading.append(title, count);
+
+  const note = document.createElement("p");
+  note.className = "occurrences-note";
+  note.textContent = "每条先显示这个字所在的原句，再显示到达该页面的路线。单字页出处只标出对应的字。";
+  const list = document.createElement("div");
+  list.className = "occurrences-list";
+  const more = button("", "utility-button occurrences-more", () => appendBatch());
+  const batchSize = 24;
+  let shown = 0;
+
+  function appendBatch() {
+    const end = Math.min(shown + batchSize, references.length);
+    const fragment = document.createDocumentFragment();
+    for (; shown < end; shown += 1) {
+      fragment.append(makeOccurrenceCard(data.occurrence_sentences[references[shown]]));
+    }
+    list.append(fragment);
+    if (shown >= references.length) more.remove();
+    else more.textContent = `继续显示（还剩 ${references.length - shown} 处）`;
+  }
+
+  panel.append(heading, note, list);
+  if (references.length) {
+    panel.append(more);
+    appendBatch();
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "empty-results";
+    empty.textContent = "暂未找到出处。";
+    panel.append(empty);
+  }
+  return panel;
+}
+
 function renderDetail() {
   const item = entries[currentState.index];
   const path = item.path;
@@ -912,31 +1010,14 @@ function renderDetail() {
     <span class="legend-item left"><i class="legend-dot"></i>左键点击</span>
     <span class="legend-item right"><i class="legend-dot"></i>右键点击</span>`;
 
-  const flow = document.createElement("div");
-  flow.className = "path-flow";
-  const start = document.createElement("span");
-  start.className = "path-chip start";
-  start.textContent = path.start === "startup_left" ? "启动时左页" : "右侧首页";
-  const nodes = [start];
-  for (const action of path.actions) nodes.push(chipFromParts("left", action.label));
-  for (const glyph of path.dictionary_chain) nodes.push(chipFromParts("right", [{ glyph }]));
-  nodes.forEach((node, index) => {
-    if (index > 0) {
-      const arrow = document.createElement("span");
-      arrow.className = "path-arrow";
-      arrow.setAttribute("aria-hidden", "true");
-      arrow.textContent = "→";
-      flow.append(arrow);
-    }
-    flow.append(node);
-  });
+  const flow = makePathFlow(path, path.dictionary_chain);
 
   const done = document.createElement("div");
   done.className = "completion-note";
   done.textContent = "到达目标字的字典页";
   panel.append(legend, flow, done);
   shell.append(titleRow, hero);
-  shell.append(panel);
+  shell.append(panel, makeOccurrencesPanel(item));
   app.replaceChildren(shell);
 }
 
@@ -957,7 +1038,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json")
+fetch("data/app-data.json?v=d3e0602bbfd1")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
@@ -969,6 +1050,8 @@ fetch("data/app-data.json")
       || loaded.entries.length !== loaded.count
       || !Array.isArray(loaded.save_key_tokens)
       || loaded.save_key_tokens.length !== loaded.count
+      || !Array.isArray(loaded.occurrence_sentences)
+      || loaded.entries.some((entry) => !Array.isArray(entry.occurrences))
     ) throw new Error("字典数据不完整");
     data = loaded;
     entries = loaded.entries;
