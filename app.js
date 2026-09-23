@@ -9,6 +9,7 @@ let entries = [];
 let currentState = null;
 let reusableAtoms = [];
 let singleUseAtoms = [];
+let atomVariants = new Map();
 let personalMeanings = new Map();
 let personalImportSummary = null;
 let showPersonalMeanings = false;
@@ -103,8 +104,10 @@ function markGlyphContainer(element, index) {
   return element;
 }
 
-function withPersonalCaption(container, index, variant) {
+function withPersonalCaption(container, indexOrIndexes, variant) {
   if (!showPersonalMeanings) return container;
+  const indexes = Array.isArray(indexOrIndexes) ? indexOrIndexes : [indexOrIndexes];
+  const index = indexes[0];
   const stack = document.createElement("span");
   stack.className = `glyph-meaning-stack ${variant}-meaning-stack`;
   if (variant === "target") {
@@ -134,11 +137,22 @@ function withPersonalCaption(container, index, variant) {
   }
   const label = document.createElement("span");
   label.className = "inline-personal-meaning";
-  if (isDecipheredIndex(index)) label.textContent = personalMeaningForIndex(index);
-  else {
-    label.classList.add("missing");
-    label.textContent = "?";
-  }
+  indexes.forEach((captionIndex, position) => {
+    if (position) {
+      const separator = document.createElement("span");
+      separator.className = "personal-meaning-separator";
+      separator.textContent = " / ";
+      label.append(separator);
+    }
+    const part = document.createElement("span");
+    part.className = "personal-meaning-part";
+    if (isDecipheredIndex(captionIndex)) part.textContent = personalMeaningForIndex(captionIndex);
+    else {
+      part.classList.add("missing");
+      part.textContent = "?";
+    }
+    label.append(part);
+  });
   stack.append(container, label);
   return stack;
 }
@@ -575,28 +589,63 @@ function renderComponents() {
   paletteHeading.append(paletteTitle, selectionCount, makeNotWordKey(), paletteActions);
 
   function makeAtomButton(atom) {
+    const variants = atomVariants.get(atom) || [];
+    const pairedVariant = variants.length === 1 ? variants[0] : null;
     const atomButton = document.createElement("button");
     atomButton.type = "button";
     atomButton.className = "atom-button";
-    if (entries[atom].not_word) atomButton.classList.add("not-word");
-    if (entries[atom].startup_only) atomButton.classList.add("startup-only");
-    markGlyphContainer(atomButton, atom);
+    if (!pairedVariant) {
+      if (entries[atom].not_word) atomButton.classList.add("not-word");
+      if (entries[atom].startup_only) atomButton.classList.add("startup-only");
+      markGlyphContainer(atomButton, atom);
+    } else {
+      atomButton.classList.add("has-transform-variant");
+    }
+    const transformDescription = pairedVariant
+      ? {
+          flip_horizontal: "左右翻转",
+          flip_vertical: "上下翻转",
+          rotate_180: "旋转 180 度",
+        }[pairedVariant.transform]
+      : "";
     atomButton.setAttribute(
       "aria-label",
       entries[atom].startup_only
         ? (selected.has(atom) ? "取消这个仅从启动时左页可达的部件" : "选择这个仅从启动时左页可达的部件")
         : entries[atom].not_word
         ? (selected.has(atom) ? "取消这个非正式字部件" : "选择这个非正式字部件")
+        : pairedVariant
+        ? `${selected.has(atom) ? "取消" : "选择"}这个部件及其${transformDescription}形式`
         : (selected.has(atom) ? "取消这个部件" : "选择这个部件"),
     );
     atomButton.setAttribute("aria-pressed", String(selected.has(atom)));
-    atomButton.append(glyphImage(atom));
+    if (pairedVariant) {
+      atomButton.title = `这两个形状在部件查询中视为同一部首（${transformDescription}）`;
+      for (const [index, position] of [
+        [atom, "primary"],
+        [pairedVariant.glyph, "secondary"],
+      ]) {
+        const glyph = document.createElement("span");
+        glyph.className = `atom-variant-glyph ${position}`;
+        if (entries[index].not_word) glyph.classList.add("not-word");
+        if (entries[index].startup_only) glyph.classList.add("startup-only");
+        markGlyphContainer(glyph, index);
+        glyph.append(glyphImage(index));
+        atomButton.append(glyph);
+      }
+    } else {
+      atomButton.append(glyphImage(atom));
+    }
     atomButton.addEventListener("click", () => {
       const next = new Set(currentState.atoms);
       if (next.has(atom)) next.delete(atom); else next.add(atom);
       replaceCurrent({ atoms: [...next], scrollY: window.scrollY });
     });
-    return withPersonalCaption(atomButton, atom, "atom");
+    return withPersonalCaption(
+      atomButton,
+      pairedVariant ? [atom, pairedVariant.glyph] : atom,
+      "atom",
+    );
   }
 
   const reusableGrid = document.createElement("div");
@@ -1089,7 +1138,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=c552ee337e79")
+fetch("data/app-data.json?v=6f4ca4c68787")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
@@ -1101,12 +1150,14 @@ fetch("data/app-data.json?v=c552ee337e79")
       || loaded.entries.length !== loaded.count
       || !Array.isArray(loaded.save_key_tokens)
       || loaded.save_key_tokens.length !== loaded.count
+      || !Array.isArray(loaded.atom_variants)
       || !Array.isArray(loaded.occurrence_sentences)
       || loaded.occurrence_sentences.some((record) => !Array.isArray(record.sources) || record.sources.length === 0)
       || loaded.entries.some((entry) => !Array.isArray(entry.occurrences))
     ) throw new Error("字典数据不完整");
     data = loaded;
     entries = loaded.entries;
+    atomVariants = new Map(loaded.atom_variants.map((group) => [group.atom, group.variants]));
     atlasRows = Math.ceil(entries.length / atlasColumns);
     loadPersonalState();
     const atomUsageCounts = new Map(loaded.atom_indices.map((atom) => [atom, 0]));
