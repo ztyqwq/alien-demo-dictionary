@@ -985,7 +985,7 @@ function makeOccurrencesPanel(item) {
 
   const note = document.createElement("p");
   note.className = "occurrences-note";
-  note.textContent = "橙底标出当前字；点右侧“＋”查看它出现过的全部页面。完全相同的原句会合并，仅作为部首出现的字不计入出处索引。";
+  note.textContent = "青底标出当前字；点右侧“＋”查看它出现过的全部页面。完全相同的原句会合并，仅作为部首出现的字不计入出处索引。";
   const list = document.createElement("div");
   list.className = "occurrences-list";
   const more = button("", "utility-button occurrences-more", () => appendBatch());
