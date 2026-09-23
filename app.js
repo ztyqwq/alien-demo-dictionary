@@ -105,6 +105,7 @@ function markGlyphContainer(element, index) {
 
 function appendPersonalCaption(container, index) {
   if (!showPersonalMeanings) return;
+  container.classList.add("has-personal-meaning");
   const label = document.createElement("span");
   label.className = "inline-personal-meaning";
   if (isDecipheredIndex(index)) label.textContent = personalMeaningForIndex(index);
