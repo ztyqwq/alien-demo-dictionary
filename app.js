@@ -16,6 +16,7 @@ let showPersonalMeanings = false;
 let highlightUndeciphered = false;
 let saveImportStatus = null;
 let writerDraft = [];
+let writerCursor = 0;
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
@@ -85,17 +86,18 @@ function persistPersonalState() {
 }
 
 function loadWriterDraft() {
+  writerDraft = [];
   try {
     const stored = JSON.parse(localStorage.getItem(writerStorageKey) || "null");
-    if (!stored || stored.schema !== 1 || !Array.isArray(stored.items)) return;
-    const indexByToken = new Map(data.save_key_tokens.map((token, index) => [token, index]));
-    writerDraft = stored.items.flatMap((item) => {
-      if (item === " " || item === "\n") return [item];
-      return indexByToken.has(item) ? [indexByToken.get(item)] : [];
-    });
-  } catch {
-    writerDraft = [];
-  }
+    if (stored && stored.schema === 1 && Array.isArray(stored.items)) {
+      const indexByToken = new Map(data.save_key_tokens.map((token, index) => [token, index]));
+      writerDraft = stored.items.flatMap((item) => {
+        if (item === " " || item === "\n") return [item];
+        return indexByToken.has(item) ? [indexByToken.get(item)] : [];
+      });
+    }
+  } catch {}
+  writerCursor = writerDraft.length;
 }
 
 function persistWriterDraft() {
@@ -812,7 +814,7 @@ function renderWriter() {
   heading.innerHTML = `
     <p class="eyebrow">连续书写</p>
     <h1>外星写作</h1>
-    <p class="summary">输入个人释义寻找候选字；释义框为空时，空格、退格和回车会直接编辑正文。</p>`;
+    <p class="summary">输入个人释义寻找候选字；点击正文或使用方向键移动光标，空格、退格和回车会直接编辑正文。</p>`;
 
   const editor = document.createElement("section");
   editor.className = "section-card writer-editor";
@@ -851,52 +853,84 @@ function renderWriter() {
 
   function insertToken(token) {
     if (writerDraft.length >= 5000) return;
-    writerDraft.push(token);
+    writerCursor = Math.max(0, Math.min(writerCursor, writerDraft.length));
+    writerDraft.splice(writerCursor, 0, token);
+    writerCursor += 1;
     persistWriterDraft();
     refreshDraft();
   }
 
-  function removeLastToken() {
-    if (!writerDraft.length) return;
-    writerDraft.pop();
+  function removePreviousToken() {
+    if (writerCursor <= 0) return;
+    writerDraft.splice(writerCursor - 1, 1);
+    writerCursor -= 1;
     persistWriterDraft();
     refreshDraft();
+  }
+
+  function removeNextToken() {
+    if (writerCursor >= writerDraft.length) return;
+    writerDraft.splice(writerCursor, 1);
+    persistWriterDraft();
+    refreshDraft();
+  }
+
+  function moveCursor(position) {
+    writerCursor = Math.max(0, Math.min(position, writerDraft.length));
+    refreshDraft();
+  }
+
+  function makeTokenClickable(element, position, alwaysAfter = false) {
+    element.classList.add("writer-token");
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const bounds = element.getBoundingClientRect();
+      const after = alwaysAfter || event.clientX >= bounds.left + bounds.width / 2;
+      moveCursor(position + Number(after));
+      input.focus();
+    });
+    return element;
   }
 
   function refreshDraft() {
+    writerCursor = Math.max(0, Math.min(writerCursor, writerDraft.length));
     canvas.replaceChildren();
     const glyphCount = writerDraft.filter(Number.isInteger).length;
     const spaceCount = writerDraft.filter((item) => item === " ").length;
     count.textContent = `${glyphCount} 个字${spaceCount ? `，${spaceCount} 个空位` : ""}`;
+    const caret = document.createElement("span");
+    caret.className = "writer-caret";
+    caret.setAttribute("aria-hidden", "true");
     if (!writerDraft.length) {
       const placeholder = document.createElement("span");
       placeholder.className = "writer-placeholder";
       placeholder.textContent = "从下面选择字，开始写作";
-      canvas.append(placeholder);
+      canvas.append(placeholder, caret);
     } else {
-      for (const item of writerDraft) {
+      for (let position = 0; position <= writerDraft.length; position += 1) {
+        if (position === writerCursor) canvas.append(caret);
+        if (position === writerDraft.length) break;
+        const item = writerDraft[position];
         if (item === " ") {
           const space = document.createElement("span");
           space.className = "writer-space";
           space.setAttribute("aria-label", "空格");
-          canvas.append(space);
+          canvas.append(makeTokenClickable(space, position));
         } else if (item === "\n") {
           const lineBreak = document.createElement("span");
           lineBreak.className = "writer-line-break";
           lineBreak.setAttribute("aria-label", "换行");
-          canvas.append(lineBreak);
+          canvas.append(makeTokenClickable(lineBreak, position, true));
         } else {
           const glyph = document.createElement("span");
           glyph.className = "writer-glyph-token";
           glyph.append(glyphImage(item));
-          canvas.append(withPersonalCaption(glyph, item, "writer"));
+          canvas.append(makeTokenClickable(withPersonalCaption(glyph, item, "writer"), position));
         }
       }
     }
-    const caret = document.createElement("span");
-    caret.className = "writer-caret";
-    caret.setAttribute("aria-hidden", "true");
-    canvas.append(caret);
+    leftCursorButton.disabled = writerCursor === 0;
+    rightCursorButton.disabled = writerCursor === writerDraft.length;
   }
 
   function matchingCandidates() {
@@ -958,11 +992,24 @@ function renderWriter() {
   function clearDraft() {
     if (!writerDraft.length || !window.confirm("清空当前外星文草稿？")) return;
     writerDraft = [];
+    writerCursor = 0;
     persistWriterDraft();
     refreshDraft();
     input.focus();
   }
 
+  const leftCursorButton = button("←", "utility-button writer-cursor-button", () => {
+    moveCursor(writerCursor - 1);
+    input.focus();
+  });
+  leftCursorButton.title = "光标左移";
+  leftCursorButton.setAttribute("aria-label", "光标左移");
+  const rightCursorButton = button("→", "utility-button writer-cursor-button", () => {
+    moveCursor(writerCursor + 1);
+    input.focus();
+  });
+  rightCursorButton.title = "光标右移";
+  rightCursorButton.setAttribute("aria-label", "光标右移");
   const lineBreakButton = button("换行", "utility-button", () => {
     insertToken("\n");
     input.focus();
@@ -972,18 +1019,33 @@ function renderWriter() {
     input.focus();
   });
   const backspaceButton = button("退格", "utility-button", () => {
-    removeLastToken();
+    removePreviousToken();
     input.focus();
   });
   const clearButton = button("清空", "clear-button", clearDraft);
-  toolbarActions.append(lineBreakButton, spaceButton, backspaceButton, clearButton);
+  toolbarActions.append(leftCursorButton, rightCursorButton, lineBreakButton, spaceButton, backspaceButton, clearButton);
   toolbar.append(count, toolbarActions);
   editor.append(toolbar, canvas);
 
   input.addEventListener("input", refreshCandidates);
   input.addEventListener("keydown", (event) => {
     if (event.isComposing) return;
-    if (event.key === "Enter") {
+    if (!input.value && event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveCursor(writerCursor - 1);
+    } else if (!input.value && event.key === "ArrowRight") {
+      event.preventDefault();
+      moveCursor(writerCursor + 1);
+    } else if (!input.value && event.key === "Home") {
+      event.preventDefault();
+      moveCursor(0);
+    } else if (!input.value && event.key === "End") {
+      event.preventDefault();
+      moveCursor(writerDraft.length);
+    } else if (!input.value && event.key === "Delete") {
+      event.preventDefault();
+      removeNextToken();
+    } else if (event.key === "Enter") {
       event.preventDefault();
       const [first] = matchingCandidates();
       if (first) {
@@ -998,14 +1060,32 @@ function renderWriter() {
       insertToken(" ");
     } else if (event.key === "Backspace" && !input.value) {
       event.preventDefault();
-      removeLastToken();
+      removePreviousToken();
     }
   });
-  canvas.addEventListener("click", () => input.focus());
+  canvas.addEventListener("click", () => {
+    moveCursor(writerDraft.length);
+    input.focus();
+  });
   canvas.addEventListener("keydown", (event) => {
-    if (event.key === "Backspace") {
+    if (event.key === "ArrowLeft") {
       event.preventDefault();
-      removeLastToken();
+      moveCursor(writerCursor - 1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveCursor(writerCursor + 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      moveCursor(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      moveCursor(writerDraft.length);
+    } else if (event.key === "Delete") {
+      event.preventDefault();
+      removeNextToken();
+    } else if (event.key === "Backspace") {
+      event.preventDefault();
+      removePreviousToken();
     } else if (event.key === " ") {
       event.preventDefault();
       insertToken(" ");

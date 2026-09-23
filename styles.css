@@ -277,6 +277,12 @@ button:focus-visible,
   justify-content: flex-end;
 }
 
+.writer-cursor-button {
+  min-width: 2.55rem;
+  padding-inline: 0.65rem;
+  font-size: 1.05rem;
+}
+
 .writer-count,
 .writer-ime-heading span,
 .writer-candidate-status {
@@ -337,15 +343,25 @@ button:focus-visible,
   font-size: 0.72rem;
 }
 
+.writer-token {
+  border-radius: 0.35rem;
+  cursor: text;
+}
+
+.writer-token:hover {
+  outline: 1px dashed var(--line-strong);
+  outline-offset: 2px;
+}
+
 .writer-space {
-  width: 2.15rem;
+  width: 3.6rem;
   height: 3.6rem;
   flex: 0 0 auto;
 }
 
 .writer-line-break {
   width: 100%;
-  height: 0.25rem;
+  height: 0.75rem;
   flex: 1 0 100%;
 }
 
