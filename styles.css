@@ -184,6 +184,12 @@ button:focus-visible,
   opacity: 0.6;
 }
 
+.personal-meaning-separator {
+  color: var(--muted);
+  opacity: 0.42;
+  font-weight: 400;
+}
+
 .glyph-meaning-stack {
   display: inline-grid;
   min-width: 0;

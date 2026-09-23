@@ -138,7 +138,12 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
   const label = document.createElement("span");
   label.className = "inline-personal-meaning";
   indexes.forEach((captionIndex, position) => {
-    if (position) label.append(document.createTextNode(" / "));
+    if (position) {
+      const separator = document.createElement("span");
+      separator.className = "personal-meaning-separator";
+      separator.textContent = " / ";
+      label.append(separator);
+    }
     const part = document.createElement("span");
     part.className = "personal-meaning-part";
     if (isDecipheredIndex(captionIndex)) part.textContent = personalMeaningForIndex(captionIndex);
