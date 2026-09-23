@@ -195,8 +195,10 @@ button:focus-visible,
 }
 
 .target-meaning-stack .inline-personal-meaning {
-  padding-block: 0.28rem;
-  font-size: 1rem;
+  padding-block: 0.38rem;
+  font-family: inherit;
+  font-size: 1.12rem;
+  font-weight: 650;
 }
 
 .dictionary-meaning-stack {

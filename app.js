@@ -107,6 +107,31 @@ function withPersonalCaption(container, index, variant) {
   if (!showPersonalMeanings) return container;
   const stack = document.createElement("span");
   stack.className = `glyph-meaning-stack ${variant}-meaning-stack`;
+  if (variant === "target") {
+    const editor = document.createElement("input");
+    editor.type = "text";
+    editor.className = "inline-personal-meaning target-personal-meaning-input";
+    editor.maxLength = 300;
+    editor.value = personalMeaningForIndex(index);
+    editor.placeholder = "?";
+    editor.title = "保存在此浏览器，不会写回游戏存档";
+    editor.setAttribute("aria-label", "编辑这个字的个人释义");
+    editor.addEventListener("input", () => {
+      const token = data.save_key_tokens[index];
+      if (editor.value.length > 0) personalMeanings.set(token, editor.value);
+      else personalMeanings.delete(token);
+      const persisted = persistPersonalState();
+      editor.title = persisted
+        ? "已保存到此浏览器，不会写回游戏存档"
+        : "浏览器未允许保存这次修改";
+      container.classList.toggle(
+        "undeciphered-highlight",
+        highlightUndeciphered && !isDecipheredMeaning(editor.value),
+      );
+    });
+    stack.append(container, editor);
+    return stack;
+  }
   const label = document.createElement("span");
   label.className = "inline-personal-meaning";
   if (isDecipheredIndex(index)) label.textContent = personalMeaningForIndex(index);
@@ -789,41 +814,6 @@ function makeDictionaryPanel(item) {
   return panel;
 }
 
-function makePersonalMeaningPanel(index) {
-  const panel = document.createElement("section");
-  panel.className = "section-card personal-meaning-panel";
-
-  const heading = document.createElement("div");
-  heading.className = "personal-meaning-heading";
-  const title = document.createElement("h2");
-  title.textContent = "个人释义";
-  const note = document.createElement("span");
-  note.className = "personal-save-note";
-  note.textContent = "保存在此浏览器，不会写回游戏存档";
-  heading.append(title, note);
-
-  const editor = document.createElement("textarea");
-  editor.className = "personal-meaning-editor";
-  editor.rows = 3;
-  editor.maxLength = 300;
-  editor.value = personalMeaningForIndex(index);
-  editor.placeholder = "?";
-  editor.setAttribute("aria-label", "编辑这个字的个人释义");
-  editor.addEventListener("input", () => {
-    const token = data.save_key_tokens[index];
-    if (editor.value.length > 0) personalMeanings.set(token, editor.value);
-    else personalMeanings.delete(token);
-    const persisted = persistPersonalState();
-    note.textContent = persisted
-      ? "已保存到此浏览器，不会写回游戏存档"
-      : "浏览器未允许保存这次修改";
-    note.classList.toggle("error", !persisted);
-  });
-
-  panel.append(heading, editor);
-  return panel;
-}
-
 function chipFromParts(kind, parts) {
   const chip = document.createElement("span");
   chip.className = `path-chip ${kind}`;
@@ -946,7 +936,6 @@ function renderDetail() {
   done.textContent = "到达目标字的字典页";
   panel.append(legend, flow, done);
   shell.append(titleRow, hero);
-  if (showPersonalMeanings) shell.append(makePersonalMeaningPanel(currentState.index));
   shell.append(panel);
   app.replaceChildren(shell);
 }
