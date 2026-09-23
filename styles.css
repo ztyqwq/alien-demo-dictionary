@@ -151,9 +151,9 @@ button:focus-visible,
 }
 
 .dictionary-glyph.occurrence-target-glyph {
-  border-color: #c96f00 !important;
-  background: #ffc46b !important;
-  box-shadow: inset 0 0 0 1px #c96f00 !important;
+  border-color: #168b7a !important;
+  background: #b8f1e8 !important;
+  box-shadow: inset 0 0 0 1px #168b7a !important;
 }
 
 .inline-personal-meaning {
