@@ -883,12 +883,12 @@ function makeOccurrenceCard(record, sourceIndexes) {
   card.className = "occurrence-card";
   const sourceRecords = sourceIndexes.map((index) => record.sources[index]);
 
+  const sentenceRow = document.createElement("div");
+  sentenceRow.className = "occurrence-sentence-row";
   const sentence = document.createElement("div");
   sentence.className = "occurrence-sentence dictionary-meaning-glyphs";
   appendDictionaryParts(sentence, record.sentence);
 
-  const actions = document.createElement("div");
-  actions.className = "occurrence-actions";
   const sources = document.createElement("div");
   sources.className = "occurrence-sources";
   sources.hidden = true;
@@ -896,7 +896,7 @@ function makeOccurrenceCard(record, sourceIndexes) {
   const collapsedLabel = sourceRecords.length > 1
     ? `显示路径（${sourceRecords.length} 个来源）`
     : "显示路径";
-  const toggle = button(collapsedLabel, "utility-button occurrence-toggle", () => {
+  const toggle = button("＋", "occurrence-toggle", () => {
     if (!sourcesBuilt) {
       const fragment = document.createDocumentFragment();
       sourceRecords.forEach((sourceRecord, position) => {
@@ -908,12 +908,16 @@ function makeOccurrenceCard(record, sourceIndexes) {
     const expanded = sources.hidden;
     sources.hidden = !expanded;
     toggle.setAttribute("aria-expanded", String(expanded));
-    toggle.textContent = expanded ? "收起路径" : collapsedLabel;
+    toggle.setAttribute("aria-label", expanded ? "收起路径" : collapsedLabel);
+    toggle.title = expanded ? "收起路径" : collapsedLabel;
+    toggle.textContent = expanded ? "−" : "＋";
   });
   toggle.setAttribute("aria-expanded", "false");
-  actions.append(toggle);
+  toggle.setAttribute("aria-label", collapsedLabel);
+  toggle.title = collapsedLabel;
+  sentenceRow.append(sentence, toggle);
 
-  card.append(sentence, actions, sources);
+  card.append(sentenceRow, sources);
   return card;
 }
 

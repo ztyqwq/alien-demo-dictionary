@@ -1013,22 +1013,46 @@ h2 {
   background: var(--panel-subtle);
 }
 
-.occurrence-sentence {
+.occurrence-sentence-row {
+  display: flex;
+  align-items: center;
   min-height: 4.7rem;
-  padding: 0.8rem 0.9rem;
   background: var(--panel);
 }
 
-.occurrence-actions {
-  display: flex;
-  justify-content: flex-end;
-  border-top: 1px solid var(--line);
-  padding: 0.55rem 0.7rem;
+.occurrence-sentence {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0.8rem 0.9rem;
 }
 
 .occurrence-toggle {
-  min-height: 2.25rem;
-  padding: 0.4rem 0.72rem;
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-right: 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  padding: 0;
+  color: var(--accent);
+  background: var(--panel-subtle);
+  font: inherit;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.occurrence-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.occurrence-toggle:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 2px;
 }
 
 .occurrence-sources {
