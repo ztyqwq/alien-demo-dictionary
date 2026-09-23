@@ -287,7 +287,7 @@ h2 {
 
 .save-progress {
   display: grid;
-  grid-template-columns: auto minmax(10rem, 1fr);
+  grid-template-columns: auto minmax(10rem, 1fr) auto;
   align-items: center;
   gap: 0.8rem 1rem;
   margin: -0.35rem 0 1rem;
@@ -296,6 +296,16 @@ h2 {
   padding: 0.75rem 0.9rem;
   color: var(--ink);
   background: var(--panel);
+}
+
+.undeciphered-filter-button {
+  white-space: nowrap;
+}
+
+.undeciphered-filter-button[aria-pressed="true"] {
+  border-color: #8c63b8;
+  color: #56317e;
+  background: #eadcff;
 }
 
 .save-progress progress {
@@ -649,6 +659,20 @@ h2 {
 .detail-subtitle {
   max-width: 42rem;
   margin-bottom: 0;
+}
+
+.detail-dictionary-summary {
+  display: grid;
+  min-width: 0;
+  gap: 0.85rem;
+}
+
+.detail-dictionary-meta {
+  padding-bottom: 0.75rem;
+}
+
+.detail-dictionary-meaning {
+  min-height: 3.5rem;
 }
 
 .dictionary-panel h2 {

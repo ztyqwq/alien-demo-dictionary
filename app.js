@@ -228,6 +228,7 @@ function defaultState() {
   return {
     view: "home",
     filter: "all",
+    undecipheredOnly: false,
     atoms: [],
     showSingleNumerals: false,
     excludeOtherAtoms: false,
@@ -269,6 +270,7 @@ function normalizedState(raw) {
   return {
     view: "home",
     filter: validFilters.has(state.filter) ? state.filter : "all",
+    undecipheredOnly: state.undecipheredOnly === true && personalImportSummary !== null,
     scrollY,
     depth,
   };
@@ -488,10 +490,19 @@ function renderHome() {
     progress.max = data.count;
     progress.value = decipheredCount();
     progress.setAttribute("aria-label", personalProgressText());
-    progressCard.append(progressText, progress);
+    const undecipheredToggle = button(
+      currentState.undecipheredOnly ? "显示全部字" : "查看所有未破译字",
+      "utility-button undeciphered-filter-button",
+      () => replaceCurrent({ undecipheredOnly: !currentState.undecipheredOnly, scrollY: 0 }),
+    );
+    undecipheredToggle.setAttribute("aria-pressed", String(currentState.undecipheredOnly));
+    progressCard.append(progressText, progress, undecipheredToggle);
     shell.append(progressCard);
   }
-  shell.append(makeGlyphGrid(filterIndexes(currentState.filter)));
+  const visibleIndexes = filterIndexes(currentState.filter).filter((index) => (
+    !currentState.undecipheredOnly || !isDecipheredIndex(index)
+  ));
+  shell.append(makeGlyphGrid(visibleIndexes));
   app.replaceChildren(shell);
 }
 
@@ -852,9 +863,54 @@ function renderDetail() {
   target.append(glyphImage(currentState.index));
   appendPersonalCaption(target, currentState.index);
   const heroText = document.createElement("div");
-  heroText.innerHTML = `
-    <h2>目标字</h2>
-    <p class="detail-subtitle">下面的路线从可重复使用的入口开始。路线里的字也可以点开，查看它自己的路线。</p>`;
+  heroText.className = "detail-dictionary-summary";
+
+  const meta = document.createElement("div");
+  meta.className = "dictionary-meta detail-dictionary-meta";
+  const wordtype = document.createElement("div");
+  wordtype.className = "dictionary-field";
+  const wordtypeLabel = document.createElement("strong");
+  wordtypeLabel.textContent = "词性：";
+  const wordtypeValue = document.createElement("span");
+  wordtypeValue.className = "dictionary-inline-glyphs";
+  appendDictionaryParts(wordtypeValue, item.dictionary.wordtype);
+  wordtype.append(wordtypeLabel, wordtypeValue);
+
+  const radicals = document.createElement("div");
+  radicals.className = "dictionary-field";
+  const radicalsLabel = document.createElement("strong");
+  radicalsLabel.textContent = "部首：";
+  const radicalsValue = document.createElement("span");
+  radicalsValue.className = "dictionary-inline-glyphs";
+  if (item.dictionary.radicals.length) {
+    item.dictionary.radicals.forEach((index, position) => {
+      if (position > 0) {
+        const separator = document.createElement("span");
+        separator.className = "dictionary-separator";
+        separator.textContent = "，";
+        radicalsValue.append(separator);
+      }
+      radicalsValue.append(makeDictionaryGlyph(index));
+    });
+  } else {
+    const empty = document.createElement("span");
+    empty.className = "dictionary-empty";
+    empty.textContent = "无";
+    radicalsValue.append(empty);
+  }
+  radicals.append(radicalsLabel, radicalsValue);
+  meta.append(wordtype, radicals);
+
+  const meaningValue = document.createElement("div");
+  meaningValue.className = "dictionary-meaning-glyphs detail-dictionary-meaning";
+  if (item.dictionary.meaning.length) appendDictionaryParts(meaningValue, item.dictionary.meaning);
+  else {
+    const empty = document.createElement("span");
+    empty.className = "dictionary-empty";
+    empty.textContent = "无定义正文";
+    meaningValue.append(empty);
+  }
+  heroText.append(meta, meaningValue);
   hero.append(target, heroText);
 
   const panel = document.createElement("section");
@@ -889,7 +945,7 @@ function renderDetail() {
   done.className = "completion-note";
   done.textContent = "到达目标字的字典页";
   panel.append(legend, flow, done);
-  shell.append(titleRow, hero, makeDictionaryPanel(item));
+  shell.append(titleRow, hero);
   if (showPersonalMeanings) shell.append(makePersonalMeaningPanel(currentState.index));
   shell.append(panel);
   app.replaceChildren(shell);
