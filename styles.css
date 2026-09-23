@@ -1019,14 +1019,48 @@ h2 {
   background: var(--panel);
 }
 
+.occurrence-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  padding: 0.55rem 0.7rem;
+}
+
+.occurrence-toggle {
+  min-height: 2.25rem;
+  padding: 0.4rem 0.72rem;
+}
+
+.occurrence-sources {
+  display: grid;
+  border-top: 1px solid var(--line);
+  background: var(--panel-subtle);
+}
+
+.occurrence-sources[hidden] {
+  display: none;
+}
+
 .occurrence-source {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.45rem 0.65rem;
-  border-top: 1px solid var(--line);
   padding: 0.75rem 0.9rem 0.85rem;
   color: var(--muted);
+}
+
+.occurrence-source + .occurrence-source {
+  border-top: 1px dashed var(--line-strong);
+}
+
+.occurrence-source-position {
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 750;
 }
 
 .occurrence-source-type {

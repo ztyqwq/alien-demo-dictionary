@@ -852,32 +852,68 @@ function makePathFlow(path, dictionaryChain = []) {
   return flow;
 }
 
-function makeOccurrenceCard(record) {
+function makeOccurrenceSource(sourceRecord, position, total) {
+  const source = document.createElement("div");
+  source.className = "occurrence-source";
+  if (total > 1) {
+    const positionLabel = document.createElement("span");
+    positionLabel.className = "occurrence-source-position";
+    positionLabel.textContent = `来源 ${position + 1}`;
+    source.append(positionLabel);
+  }
+  const sourceLabel = document.createElement("strong");
+  sourceLabel.textContent = "出处：";
+  source.append(sourceLabel);
+  if (sourceRecord.kind === "dictionary_entry") {
+    const sourceType = document.createElement("span");
+    sourceType.className = "occurrence-source-type";
+    sourceType.textContent = "单字页";
+    source.append(sourceType, makeDictionaryGlyph(sourceRecord.entry));
+  } else {
+    const sourceType = document.createElement("span");
+    sourceType.className = "occurrence-source-type";
+    sourceType.textContent = sourceRecord.kind === "right_page" ? "右侧页" : "左侧普通字典页";
+    source.append(sourceType, makePathFlow(sourceRecord));
+  }
+  return source;
+}
+
+function makeOccurrenceCard(record, sourceIndexes) {
   const card = document.createElement("article");
   card.className = "occurrence-card";
+  const sourceRecords = sourceIndexes.map((index) => record.sources[index]);
 
   const sentence = document.createElement("div");
   sentence.className = "occurrence-sentence dictionary-meaning-glyphs";
   appendDictionaryParts(sentence, record.sentence);
 
-  const source = document.createElement("div");
-  source.className = "occurrence-source";
-  const sourceLabel = document.createElement("strong");
-  sourceLabel.textContent = "出处：";
-  source.append(sourceLabel);
-  if (record.source.kind === "dictionary_entry") {
-    const sourceType = document.createElement("span");
-    sourceType.className = "occurrence-source-type";
-    sourceType.textContent = "单字页";
-    source.append(sourceType, makeDictionaryGlyph(record.source.entry));
-  } else {
-    const sourceType = document.createElement("span");
-    sourceType.className = "occurrence-source-type";
-    sourceType.textContent = record.source.kind === "right_page" ? "右侧页" : "左侧普通字典页";
-    source.append(sourceType, makePathFlow(record.source));
-  }
+  const actions = document.createElement("div");
+  actions.className = "occurrence-actions";
+  const sources = document.createElement("div");
+  sources.className = "occurrence-sources";
+  sources.hidden = true;
+  let sourcesBuilt = false;
+  const collapsedLabel = sourceRecords.length > 1
+    ? `显示路径（${sourceRecords.length} 个来源）`
+    : "显示路径";
+  const toggle = button(collapsedLabel, "utility-button occurrence-toggle", () => {
+    if (!sourcesBuilt) {
+      const fragment = document.createDocumentFragment();
+      sourceRecords.forEach((sourceRecord, position) => {
+        fragment.append(makeOccurrenceSource(sourceRecord, position, sourceRecords.length));
+      });
+      sources.append(fragment);
+      sourcesBuilt = true;
+    }
+    const expanded = sources.hidden;
+    sources.hidden = !expanded;
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.textContent = expanded ? "收起路径" : collapsedLabel;
+  });
+  toggle.setAttribute("aria-expanded", "false");
+  actions.append(toggle);
 
-  card.append(sentence, source);
+  card.append(sentence, actions, sources);
   return card;
 }
 
@@ -892,27 +928,33 @@ function makeOccurrencesPanel(item) {
   title.textContent = "出处索引";
   const count = document.createElement("span");
   count.className = "selection-count";
-  count.textContent = `共 ${references.length} 处`;
+  count.textContent = `共 ${references.length} 个不同句子`;
   heading.append(title, count);
 
   const note = document.createElement("p");
   note.className = "occurrences-note";
-  note.textContent = "每条先显示这个字所在的原句，再显示到达该页面的路线。单字页出处只标出对应的字。";
+  note.textContent = "每条只列一个去重后的原句；点“显示路径”查看它出现过的全部页面。仅作为部首出现的字不计入出处索引。";
   const list = document.createElement("div");
   list.className = "occurrences-list";
   const more = button("", "utility-button occurrences-more", () => appendBatch());
-  const batchSize = 24;
+  const batchSize = 10;
   let shown = 0;
 
   function appendBatch() {
     const end = Math.min(shown + batchSize, references.length);
     const fragment = document.createDocumentFragment();
     for (; shown < end; shown += 1) {
-      fragment.append(makeOccurrenceCard(data.occurrence_sentences[references[shown]]));
+      const reference = references[shown];
+      fragment.append(
+        makeOccurrenceCard(
+          data.occurrence_sentences[reference.sentence],
+          reference.sources,
+        ),
+      );
     }
     list.append(fragment);
     if (shown >= references.length) more.remove();
-    else more.textContent = `继续显示（还剩 ${references.length - shown} 处）`;
+    else more.textContent = `继续显示（还剩 ${references.length - shown} 条）`;
   }
 
   panel.append(heading, note, list);
@@ -1038,7 +1080,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=d3e0602bbfd1")
+fetch("data/app-data.json?v=c552ee337e79")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
@@ -1051,6 +1093,7 @@ fetch("data/app-data.json?v=d3e0602bbfd1")
       || !Array.isArray(loaded.save_key_tokens)
       || loaded.save_key_tokens.length !== loaded.count
       || !Array.isArray(loaded.occurrence_sentences)
+      || loaded.occurrence_sentences.some((record) => !Array.isArray(record.sources) || record.sources.length === 0)
       || loaded.entries.some((entry) => !Array.isArray(entry.occurrences))
     ) throw new Error("字典数据不完整");
     data = loaded;
