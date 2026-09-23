@@ -70,6 +70,7 @@ button:focus-visible,
 
 .brand {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 0.7rem;
   border: 0;
@@ -79,7 +80,12 @@ button:focus-visible,
   font-size: 1.12rem;
   font-weight: 750;
   letter-spacing: 0.02em;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.top-actions {
+  justify-content: flex-end;
 }
 
 .brand-icon {
@@ -242,6 +248,204 @@ button:focus-visible,
   border-radius: 0.72rem;
   padding: 0.65rem 0.8rem;
   font: inherit;
+}
+
+.writer-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.writer-editor {
+  padding: clamp(0.85rem, 2vw, 1.2rem);
+}
+
+.writer-toolbar,
+.writer-toolbar-actions,
+.writer-ime-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.writer-toolbar {
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.writer-toolbar-actions {
+  justify-content: flex-end;
+}
+
+.writer-count,
+.writer-ime-heading span,
+.writer-candidate-status {
+  color: var(--muted);
+}
+
+.writer-count {
+  font-weight: 650;
+}
+
+.writer-canvas {
+  display: flex;
+  min-height: clamp(18rem, 46vh, 34rem);
+  align-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.28rem;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.85rem;
+  padding: clamp(1rem, 2.5vw, 1.6rem);
+  background:
+    linear-gradient(rgba(36, 75, 102, 0.035) 1px, transparent 1px) 0 0 / 100% 4.7rem,
+    var(--panel-subtle);
+  cursor: text;
+}
+
+.writer-placeholder {
+  align-self: center;
+  margin: auto;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.writer-glyph-token {
+  display: grid;
+  width: 3.6rem;
+  height: 3.6rem;
+  place-items: center;
+}
+
+.writer-glyph-token .glyph-image {
+  width: 3.35rem;
+  height: 3.35rem;
+}
+
+.writer-meaning-stack {
+  width: 3.6rem;
+}
+
+.writer-meaning-stack .writer-glyph-token {
+  width: 100%;
+}
+
+.writer-meaning-stack .inline-personal-meaning {
+  border-color: transparent;
+  background: transparent;
+  font-size: 0.72rem;
+}
+
+.writer-space {
+  width: 2.15rem;
+  height: 3.6rem;
+  flex: 0 0 auto;
+}
+
+.writer-line-break {
+  width: 100%;
+  height: 0.25rem;
+  flex: 1 0 100%;
+}
+
+.writer-caret {
+  width: 2px;
+  height: 3.25rem;
+  align-self: flex-start;
+  margin: 0.18rem 0.1rem;
+  background: var(--accent);
+  animation: writer-caret-blink 1.1s steps(1) infinite;
+}
+
+.writer-ime {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.writer-ime-heading {
+  justify-content: space-between;
+}
+
+.writer-ime-heading h2,
+.writer-candidate-status {
+  margin: 0;
+}
+
+.writer-ime-heading span,
+.writer-candidate-status {
+  font-size: 0.88rem;
+}
+
+.writer-ime-input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.78rem;
+  padding: 0.78rem 0.9rem;
+  color: var(--ink);
+  background: var(--panel-subtle);
+  font: inherit;
+  font-size: 1.05rem;
+}
+
+.writer-ime-input:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgba(36, 75, 102, 0.14);
+}
+
+.writer-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.7rem, 1fr));
+  gap: 0.6rem;
+}
+
+.writer-candidate {
+  display: grid;
+  min-width: 0;
+  min-height: 6.4rem;
+  grid-template-rows: 4rem auto;
+  place-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  padding: 0.45rem;
+  color: var(--ink);
+  background: var(--panel-subtle);
+  cursor: pointer;
+}
+
+.writer-candidate:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.writer-candidate.not-word {
+  border-color: var(--not-word-border);
+  background: var(--not-word-bg);
+}
+
+.writer-candidate.startup-only {
+  border-color: var(--startup-only-border);
+  background: var(--startup-only-bg);
+}
+
+.writer-candidate .glyph-image {
+  width: 3.75rem;
+  height: 3.75rem;
+}
+
+.writer-candidate > span:last-child {
+  width: 100%;
+  overflow: hidden;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes writer-caret-blink {
+  50% { opacity: 0; }
 }
 
 .page-shell {
@@ -1305,6 +1509,25 @@ h2 {
   .target-glyph .glyph-image {
     width: 4.8rem;
     height: 4.8rem;
+  }
+
+  .writer-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .writer-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .writer-canvas {
+    min-height: 15rem;
+    padding: 0.8rem;
+  }
+
+  .writer-candidates {
+    grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
   }
 }
 

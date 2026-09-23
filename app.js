@@ -15,10 +15,12 @@ let personalImportSummary = null;
 let showPersonalMeanings = false;
 let highlightUndeciphered = false;
 let saveImportStatus = null;
+let writerDraft = [];
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
 const personalStorageKey = "alien-demo-dictionary:personal-meanings:v1";
+const writerStorageKey = "alien-demo-dictionary:writer-draft:v2";
 const saveEntryNamespace = "message-from-aliens:glyph-entry:runtime-v1";
 const saveEncryptionKey = "terrible_artwork";
 const saveEncryptionIv = "wedidn'tplaytest";
@@ -75,6 +77,32 @@ function persistPersonalState() {
       importSummary: personalImportSummary,
       showPersonalMeanings,
       highlightUndeciphered,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadWriterDraft() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(writerStorageKey) || "null");
+    if (!stored || stored.schema !== 1 || !Array.isArray(stored.items)) return;
+    const indexByToken = new Map(data.save_key_tokens.map((token, index) => [token, index]));
+    writerDraft = stored.items.flatMap((item) => {
+      if (item === " " || item === "\n") return [item];
+      return indexByToken.has(item) ? [indexByToken.get(item)] : [];
+    });
+  } catch {
+    writerDraft = [];
+  }
+}
+
+function persistWriterDraft() {
+  try {
+    localStorage.setItem(writerStorageKey, JSON.stringify({
+      schema: 1,
+      items: writerDraft.map((item) => (Number.isInteger(item) ? data.save_key_tokens[item] : item)),
     }));
     return true;
   } catch {
@@ -289,6 +317,9 @@ function normalizedState(raw) {
   if (state.view === "meanings") {
     return { view: "meanings", query: typeof state.query === "string" ? state.query : "", scrollY, depth };
   }
+  if (state.view === "writer") {
+    return { view: "writer", scrollY, depth };
+  }
   if (state.view === "components") {
     const showSingleNumerals = state.showSingleNumerals === true;
     const excludeOtherAtoms = state.excludeOtherAtoms === true;
@@ -361,6 +392,11 @@ function goMeaningSearch() {
   navigate({ view: "meanings", query: "" });
 }
 
+function goWriter() {
+  if (currentState.view === "writer") return;
+  navigate({ view: "writer" });
+}
+
 function renderTopActions() {
   topActions.replaceChildren();
   if (!currentState) return;
@@ -368,6 +404,8 @@ function renderTopActions() {
   componentSearch.setAttribute("aria-pressed", String(currentState.view === "components"));
   const meaningSearch = button("按释义找字", "nav-button", goMeaningSearch);
   meaningSearch.setAttribute("aria-pressed", String(currentState.view === "meanings"));
+  const writer = button("外星写作", "nav-button", goWriter);
+  writer.setAttribute("aria-pressed", String(currentState.view === "writer"));
   const importButton = button("导入存档", "nav-button", chooseSaveFile);
   importButton.title = "存档路径参考：C:\\Users\\<你的用户名>\\AppData\\LocalLow\\Artless Games\\MessageFromAliens\\alienmessage1.sav（槽位 2/3 对应 alienmessage2.sav、alienmessage3.sav）";
   const visibility = button(showPersonalMeanings ? "隐藏释义" : "显示释义", "nav-button", () => {
@@ -382,7 +420,7 @@ function renderTopActions() {
     render();
   });
   highlight.setAttribute("aria-pressed", String(highlightUndeciphered));
-  topActions.append(componentSearch, meaningSearch, importButton, visibility, highlight);
+  topActions.append(componentSearch, meaningSearch, writer, importButton, visibility, highlight);
   if (currentState.view !== "home") {
     const back = button("← 上一页", "nav-button", goBack);
     back.disabled = currentState.depth === 0;
@@ -766,6 +804,230 @@ function renderMeaningSearch() {
   requestAnimationFrame(() => input.focus());
 }
 
+function renderWriter() {
+  const shell = document.createElement("section");
+  shell.className = "page-shell writer-layout";
+
+  const heading = document.createElement("div");
+  heading.innerHTML = `
+    <p class="eyebrow">连续书写</p>
+    <h1>外星写作</h1>
+    <p class="summary">输入个人释义寻找候选字；释义框为空时，空格、退格和回车会直接编辑正文。</p>`;
+
+  const editor = document.createElement("section");
+  editor.className = "section-card writer-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "writer-toolbar";
+  const count = document.createElement("span");
+  count.className = "writer-count";
+  const toolbarActions = document.createElement("div");
+  toolbarActions.className = "writer-toolbar-actions";
+  const canvas = document.createElement("div");
+  canvas.className = "writer-canvas";
+  canvas.tabIndex = 0;
+  canvas.setAttribute("role", "textbox");
+  canvas.setAttribute("aria-multiline", "true");
+  canvas.setAttribute("aria-label", "外星文正文");
+
+  const ime = document.createElement("section");
+  ime.className = "section-card writer-ime";
+  const imeHeading = document.createElement("div");
+  imeHeading.className = "writer-ime-heading";
+  const imeTitle = document.createElement("h2");
+  imeTitle.textContent = "按释义输入";
+  const imeHint = document.createElement("span");
+  imeHint.textContent = "回车选第一个候选";
+  imeHeading.append(imeTitle, imeHint);
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "writer-ime-input";
+  input.placeholder = "输入个人释义";
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "输入释义寻找外星字");
+  const candidateStatus = document.createElement("p");
+  candidateStatus.className = "writer-candidate-status";
+  const candidates = document.createElement("div");
+  candidates.className = "writer-candidates";
+
+  function insertToken(token) {
+    if (writerDraft.length >= 5000) return;
+    writerDraft.push(token);
+    persistWriterDraft();
+    refreshDraft();
+  }
+
+  function removeLastToken() {
+    if (!writerDraft.length) return;
+    writerDraft.pop();
+    persistWriterDraft();
+    refreshDraft();
+  }
+
+  function refreshDraft() {
+    canvas.replaceChildren();
+    const glyphCount = writerDraft.filter(Number.isInteger).length;
+    const spaceCount = writerDraft.filter((item) => item === " ").length;
+    count.textContent = `${glyphCount} 个字${spaceCount ? `，${spaceCount} 个空位` : ""}`;
+    if (!writerDraft.length) {
+      const placeholder = document.createElement("span");
+      placeholder.className = "writer-placeholder";
+      placeholder.textContent = "从下面选择字，开始写作";
+      canvas.append(placeholder);
+    } else {
+      for (const item of writerDraft) {
+        if (item === " ") {
+          const space = document.createElement("span");
+          space.className = "writer-space";
+          space.setAttribute("aria-label", "空格");
+          canvas.append(space);
+        } else if (item === "\n") {
+          const lineBreak = document.createElement("span");
+          lineBreak.className = "writer-line-break";
+          lineBreak.setAttribute("aria-label", "换行");
+          canvas.append(lineBreak);
+        } else {
+          const glyph = document.createElement("span");
+          glyph.className = "writer-glyph-token";
+          glyph.append(glyphImage(item));
+          canvas.append(withPersonalCaption(glyph, item, "writer"));
+        }
+      }
+    }
+    const caret = document.createElement("span");
+    caret.className = "writer-caret";
+    caret.setAttribute("aria-hidden", "true");
+    canvas.append(caret);
+  }
+
+  function matchingCandidates() {
+    const query = input.value.trim().toLocaleLowerCase();
+    if (!query) return [];
+    return entries
+      .flatMap((_, index) => {
+        const meaning = personalMeaningForIndex(index);
+        return isDecipheredMeaning(meaning) && meaning.toLocaleLowerCase().includes(query)
+          ? [{ index, meaning }]
+          : [];
+      })
+      .sort((left, right) => {
+        const leftMeaning = left.meaning.toLocaleLowerCase();
+        const rightMeaning = right.meaning.toLocaleLowerCase();
+        return Number(rightMeaning.startsWith(query)) - Number(leftMeaning.startsWith(query))
+          || leftMeaning.length - rightMeaning.length
+          || entries[left.index].path_length - entries[right.index].path_length
+          || left.index - right.index;
+      })
+      .slice(0, 30);
+  }
+
+  function refreshCandidates() {
+    const query = input.value.trim();
+    const matches = matchingCandidates();
+    candidates.replaceChildren();
+    if (!query) {
+      candidateStatus.textContent = decipheredCount()
+        ? "输入释义开始找字。输入框为空时按空格可插入空位。"
+        : "请先导入存档，或在单字页填写个人释义。";
+      return matches;
+    }
+    candidateStatus.textContent = matches.length
+      ? `找到 ${matches.length} 个候选${matches.length === 30 ? "（最多显示 30 个）" : ""}`
+      : "没有找到包含这段释义的字。";
+    for (const { index, meaning } of matches) {
+      const candidate = document.createElement("button");
+      candidate.type = "button";
+      candidate.className = "writer-candidate";
+      if (entries[index].not_word) candidate.classList.add("not-word");
+      if (entries[index].startup_only) candidate.classList.add("startup-only");
+      candidate.setAttribute("aria-label", `输入“${meaning}”`);
+      candidate.append(glyphImage(index));
+      const label = document.createElement("span");
+      label.textContent = meaning;
+      candidate.append(label);
+      candidate.addEventListener("click", () => {
+        insertToken(index);
+        input.value = "";
+        refreshCandidates();
+        input.focus();
+      });
+      candidates.append(candidate);
+    }
+    return matches;
+  }
+
+  function clearDraft() {
+    if (!writerDraft.length || !window.confirm("清空当前外星文草稿？")) return;
+    writerDraft = [];
+    persistWriterDraft();
+    refreshDraft();
+    input.focus();
+  }
+
+  const lineBreakButton = button("换行", "utility-button", () => {
+    insertToken("\n");
+    input.focus();
+  });
+  const spaceButton = button("空格", "utility-button", () => {
+    insertToken(" ");
+    input.focus();
+  });
+  const backspaceButton = button("退格", "utility-button", () => {
+    removeLastToken();
+    input.focus();
+  });
+  const clearButton = button("清空", "clear-button", clearDraft);
+  toolbarActions.append(lineBreakButton, spaceButton, backspaceButton, clearButton);
+  toolbar.append(count, toolbarActions);
+  editor.append(toolbar, canvas);
+
+  input.addEventListener("input", refreshCandidates);
+  input.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const [first] = matchingCandidates();
+      if (first) {
+        insertToken(first.index);
+        input.value = "";
+        refreshCandidates();
+      } else if (!input.value) {
+        insertToken("\n");
+      }
+    } else if (event.key === " " && !input.value) {
+      event.preventDefault();
+      insertToken(" ");
+    } else if (event.key === "Backspace" && !input.value) {
+      event.preventDefault();
+      removeLastToken();
+    }
+  });
+  canvas.addEventListener("click", () => input.focus());
+  canvas.addEventListener("keydown", (event) => {
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      removeLastToken();
+    } else if (event.key === " ") {
+      event.preventDefault();
+      insertToken(" ");
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      insertToken("\n");
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      input.focus();
+      input.value += event.key;
+      refreshCandidates();
+    }
+  });
+
+  ime.append(imeHeading, input, candidateStatus, candidates);
+  shell.append(heading, editor, ime);
+  app.replaceChildren(shell);
+  refreshDraft();
+  refreshCandidates();
+  requestAnimationFrame(() => input.focus());
+}
+
 function makeMiniGlyph(index) {
   const control = document.createElement("button");
   control.type = "button";
@@ -1125,11 +1387,20 @@ function render() {
   renderTopActions();
   if (currentState.view === "components") renderComponents();
   else if (currentState.view === "meanings") renderMeaningSearch();
+  else if (currentState.view === "writer") renderWriter();
   else if (currentState.view === "detail") renderDetail();
   else renderHome();
   const desiredScroll = currentState.scrollY ?? 0;
   requestAnimationFrame(() => window.scrollTo(0, desiredScroll));
-  live.textContent = currentState.view === "detail" ? "已打开这个字的路径" : currentState.view === "components" ? "已打开部件查询" : "已返回字形一览";
+  live.textContent = currentState.view === "detail"
+    ? "已打开这个字的路径"
+    : currentState.view === "components"
+      ? "已打开部件查询"
+      : currentState.view === "meanings"
+        ? "已打开释义查询"
+        : currentState.view === "writer"
+          ? "已打开外星写作"
+          : "已返回字形一览";
 }
 
 document.querySelector("[data-action='home']").addEventListener("click", goHome);
@@ -1160,6 +1431,7 @@ fetch("data/app-data.json?v=6f4ca4c68787")
     atomVariants = new Map(loaded.atom_variants.map((group) => [group.atom, group.variants]));
     atlasRows = Math.ceil(entries.length / atlasColumns);
     loadPersonalState();
+    loadWriterDraft();
     const atomUsageCounts = new Map(loaded.atom_indices.map((atom) => [atom, 0]));
     for (const entry of entries) {
       for (const atom of entry.atoms) {
