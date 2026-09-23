@@ -728,21 +728,25 @@ function makeMiniGlyph(index) {
   return withPersonalCaption(control, index, "mini");
 }
 
-function makeDictionaryGlyph(index) {
+function makeDictionaryGlyph(index, isOccurrenceTarget = false) {
   const control = document.createElement("button");
   control.type = "button";
   control.className = "dictionary-glyph";
   markGlyphContainer(control, index);
-  control.setAttribute("aria-label", "查看释义中这个字的字典页");
+  if (isOccurrenceTarget) control.classList.add("occurrence-target-glyph");
+  control.setAttribute(
+    "aria-label",
+    isOccurrenceTarget ? "当前查询字，查看它的字典页" : "查看释义中这个字的字典页",
+  );
   control.append(glyphImage(index));
   control.addEventListener("click", () => navigate({ view: "detail", index }));
   return withPersonalCaption(control, index, "dictionary");
 }
 
-function appendDictionaryParts(container, parts) {
+function appendDictionaryParts(container, parts, highlightedIndex = null) {
   for (const part of parts) {
     if (Object.prototype.hasOwnProperty.call(part, "glyph")) {
-      container.append(makeDictionaryGlyph(part.glyph));
+      container.append(makeDictionaryGlyph(part.glyph, part.glyph === highlightedIndex));
     } else {
       const text = document.createElement("span");
       text.className = "dictionary-literal";
@@ -878,7 +882,7 @@ function makeOccurrenceSource(sourceRecord, position, total) {
   return source;
 }
 
-function makeOccurrenceCard(record, sourceIndexes) {
+function makeOccurrenceCard(record, sourceIndexes, targetIndex) {
   const card = document.createElement("article");
   card.className = "occurrence-card";
   const sourceRecords = sourceIndexes.map((index) => record.sources[index]);
@@ -887,7 +891,7 @@ function makeOccurrenceCard(record, sourceIndexes) {
   sentenceRow.className = "occurrence-sentence-row";
   const sentence = document.createElement("div");
   sentence.className = "occurrence-sentence dictionary-meaning-glyphs";
-  appendDictionaryParts(sentence, record.sentence);
+  appendDictionaryParts(sentence, record.sentence, targetIndex);
 
   const sources = document.createElement("div");
   sources.className = "occurrence-sources";
@@ -937,7 +941,7 @@ function makeOccurrencesPanel(item) {
 
   const note = document.createElement("p");
   note.className = "occurrences-note";
-  note.textContent = "每条只列一个去重后的原句；点“显示路径”查看它出现过的全部页面。仅作为部首出现的字不计入出处索引。";
+  note.textContent = "橙底标出当前字；点右侧“＋”查看它出现过的全部页面。完全相同的原句会合并，仅作为部首出现的字不计入出处索引。";
   const list = document.createElement("div");
   list.className = "occurrences-list";
   const more = button("", "utility-button occurrences-more", () => appendBatch());
@@ -953,6 +957,7 @@ function makeOccurrencesPanel(item) {
         makeOccurrenceCard(
           data.occurrence_sentences[reference.sentence],
           reference.sources,
+          currentState.index,
         ),
       );
     }
