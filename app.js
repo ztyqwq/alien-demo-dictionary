@@ -103,9 +103,10 @@ function markGlyphContainer(element, index) {
   return element;
 }
 
-function appendPersonalCaption(container, index) {
-  if (!showPersonalMeanings) return;
-  container.classList.add("has-personal-meaning");
+function withPersonalCaption(container, index, variant) {
+  if (!showPersonalMeanings) return container;
+  const stack = document.createElement("span");
+  stack.className = `glyph-meaning-stack ${variant}-meaning-stack`;
   const label = document.createElement("span");
   label.className = "inline-personal-meaning";
   if (isDecipheredIndex(index)) label.textContent = personalMeaningForIndex(index);
@@ -113,7 +114,8 @@ function appendPersonalCaption(container, index) {
     label.classList.add("missing");
     label.textContent = "?";
   }
-  container.append(label);
+  stack.append(container, label);
+  return stack;
 }
 
 function personalProgressText() {
@@ -564,13 +566,12 @@ function renderComponents() {
     );
     atomButton.setAttribute("aria-pressed", String(selected.has(atom)));
     atomButton.append(glyphImage(atom));
-    appendPersonalCaption(atomButton, atom);
     atomButton.addEventListener("click", () => {
       const next = new Set(currentState.atoms);
       if (next.has(atom)) next.delete(atom); else next.add(atom);
       replaceCurrent({ atoms: [...next], scrollY: window.scrollY });
     });
-    return atomButton;
+    return withPersonalCaption(atomButton, atom, "atom");
   }
 
   const reusableGrid = document.createElement("div");
@@ -698,9 +699,8 @@ function makeMiniGlyph(index) {
   markGlyphContainer(control, index);
   control.setAttribute("aria-label", "查看路径中的这个字");
   control.append(glyphImage(index));
-  appendPersonalCaption(control, index);
   control.addEventListener("click", () => navigate({ view: "detail", index }));
-  return control;
+  return withPersonalCaption(control, index, "mini");
 }
 
 function makeDictionaryGlyph(index) {
@@ -710,9 +710,8 @@ function makeDictionaryGlyph(index) {
   markGlyphContainer(control, index);
   control.setAttribute("aria-label", "查看释义中这个字的字典页");
   control.append(glyphImage(index));
-  appendPersonalCaption(control, index);
   control.addEventListener("click", () => navigate({ view: "detail", index }));
-  return control;
+  return withPersonalCaption(control, index, "dictionary");
 }
 
 function appendDictionaryParts(container, parts) {
@@ -862,7 +861,7 @@ function renderDetail() {
   target.className = "target-glyph";
   markGlyphContainer(target, currentState.index);
   target.append(glyphImage(currentState.index));
-  appendPersonalCaption(target, currentState.index);
+  const targetDisplay = withPersonalCaption(target, currentState.index, "target");
   const heroText = document.createElement("div");
   heroText.className = "detail-dictionary-summary";
 
@@ -912,7 +911,7 @@ function renderDetail() {
     meaningValue.append(empty);
   }
   heroText.append(meta, meaningValue);
-  hero.append(target, heroText);
+  hero.append(targetDisplay, heroText);
 
   const panel = document.createElement("section");
   panel.className = "path-panel";

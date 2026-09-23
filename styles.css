@@ -153,11 +153,16 @@ button:focus-visible,
 .inline-personal-meaning {
   position: static;
   display: block;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
-  padding: 0.12rem 0.16rem 0;
+  margin-top: 0.18rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.18rem 0.12rem;
   color: var(--ink);
-  background: transparent;
+  background: var(--panel-subtle);
   font-size: 0.68rem;
   line-height: 1.25;
   text-align: center;
@@ -166,6 +171,43 @@ button:focus-visible,
 .inline-personal-meaning.missing {
   color: var(--muted);
   opacity: 0.6;
+}
+
+.glyph-meaning-stack {
+  display: inline-grid;
+  min-width: 0;
+  grid-template-rows: auto auto;
+  align-items: start;
+  justify-items: stretch;
+  flex: 0 0 auto;
+}
+
+.atom-meaning-stack {
+  width: 100%;
+}
+
+.atom-meaning-stack .atom-button {
+  width: 100%;
+}
+
+.target-meaning-stack {
+  width: 8.5rem;
+}
+
+.target-meaning-stack .inline-personal-meaning {
+  font-size: 0.84rem;
+}
+
+.dictionary-meaning-stack {
+  width: 3rem;
+}
+
+.dictionary-meaning-glyphs .dictionary-meaning-stack {
+  width: 3.5rem;
+}
+
+.mini-meaning-stack {
+  width: 2.45rem;
 }
 
 .meaning-search-form {
@@ -558,13 +600,6 @@ h2 {
   cursor: pointer;
 }
 
-.atom-button.has-personal-meaning {
-  min-height: 6.1rem;
-  grid-template-rows: 3rem auto;
-  align-content: center;
-  gap: 0.25rem;
-}
-
 .atom-button:hover {
   border-color: var(--line-strong);
 }
@@ -656,19 +691,6 @@ h2 {
 .target-glyph .glyph-image {
   width: 7rem;
   height: 7rem;
-}
-
-.target-glyph.has-personal-meaning {
-  height: auto;
-  min-height: 10.4rem;
-  grid-template-rows: 7rem auto;
-  align-content: center;
-  gap: 0.4rem;
-  padding: 0.45rem;
-}
-
-.target-glyph.has-personal-meaning .inline-personal-meaning {
-  font-size: 0.84rem;
 }
 
 .detail-subtitle {
@@ -802,15 +824,6 @@ h2 {
   height: 2.5rem;
 }
 
-.dictionary-glyph.has-personal-meaning {
-  width: 4.25rem;
-  height: auto;
-  min-height: 4.35rem;
-  grid-template-rows: 2.5rem auto;
-  align-content: center;
-  gap: 0.18rem;
-}
-
 .dictionary-meaning-glyphs .dictionary-glyph {
   width: 3.5rem;
   height: 3.5rem;
@@ -819,13 +832,6 @@ h2 {
 .dictionary-meaning-glyphs .dictionary-glyph .glyph-image {
   width: 3rem;
   height: 3rem;
-}
-
-.dictionary-meaning-glyphs .dictionary-glyph.has-personal-meaning {
-  width: 4.75rem;
-  height: auto;
-  min-height: 5rem;
-  grid-template-rows: 3rem auto;
 }
 
 .dictionary-literal {
@@ -947,15 +953,6 @@ h2 {
   height: 2.15rem;
 }
 
-.mini-glyph.has-personal-meaning {
-  width: 4rem;
-  height: auto;
-  min-height: 3.75rem;
-  grid-template-rows: 2.15rem auto;
-  align-content: center;
-  gap: 0.18rem;
-  padding: 0.18rem;
-}
 
 .path-text {
   min-width: 1ch;
@@ -1108,6 +1105,10 @@ h2 {
     height: 5.5rem;
   }
 
+  .target-meaning-stack {
+    width: 5.5rem;
+  }
+
   .target-glyph .glyph-image {
     width: 4.8rem;
     height: 4.8rem;
@@ -1129,6 +1130,10 @@ h2 {
   }
 
   .target-glyph {
+    width: 100%;
+  }
+
+  .target-meaning-stack {
     width: 100%;
   }
 }
