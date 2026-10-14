@@ -190,6 +190,116 @@ button:focus-visible,
   opacity: 0.6;
 }
 
+.personal-meaning-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.22rem;
+}
+
+.personal-meaning-row-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.comparison-caption .personal-meaning-row + .personal-meaning-row {
+  margin-top: 0.22rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.22rem;
+}
+
+.save-row-marker {
+  flex: 0 0 auto;
+  border-radius: 0.2rem;
+  padding: 0.02rem 0.16rem;
+  color: #3e566b;
+  background: #e5edf4;
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.save-row-marker.lower {
+  color: #6a5b43;
+  background: #f1eadd;
+}
+
+.target-save-editor {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.target-save-editor .target-personal-meaning-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.save-profile-controls {
+  width: min(100%, 98rem);
+  margin: 0 auto;
+  padding: 0.85rem clamp(1.2rem, 3vw, 2.5rem) 0;
+}
+
+.save-profile-controls[hidden] {
+  display: none;
+}
+
+.save-profile-selectors {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+
+.save-profile-selector {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.save-profile-selector > span {
+  flex: 0 0 auto;
+}
+
+.save-profile-selector select {
+  min-width: 0;
+  width: 15rem;
+  max-width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.55rem;
+  padding: 0.52rem 0.6rem;
+  color: var(--ink);
+  background: var(--panel);
+  font: inherit;
+}
+
+.save-profile-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.save-profile-status {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.save-profile-status.error {
+  color: var(--left-fg);
+}
+
+.save-profile-status.warning {
+  color: var(--not-word-fg);
+}
+
 .personal-meaning-separator {
   color: var(--muted);
   opacity: 0.42;
@@ -458,6 +568,11 @@ button:focus-visible,
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.writer-candidate > .writer-candidate-caption {
+  overflow: visible;
+  white-space: normal;
 }
 
 @keyframes writer-caret-blink {

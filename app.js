@@ -2,6 +2,7 @@
 
 const app = document.querySelector("#app");
 const topActions = document.querySelector("#top-actions");
+const saveProfileControls = document.querySelector("#save-profile-controls");
 const live = document.querySelector("#live");
 
 let data = null;
@@ -12,6 +13,11 @@ let singleUseAtoms = [];
 let atomVariants = new Map();
 let personalMeanings = new Map();
 let personalImportSummary = null;
+let saveProfiles = [];
+let activeSaveId = null;
+let comparisonSaveId = null;
+let compareSaves = false;
+let importingSaves = false;
 let showPersonalMeanings = false;
 let highlightUndeciphered = false;
 let saveImportStatus = null;
@@ -20,7 +26,8 @@ let writerCursor = 0;
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
-const personalStorageKey = "alien-demo-dictionary:personal-meanings:v1";
+const personalStorageKey = "alien-demo-dictionary:personal-meanings:v2";
+const legacyPersonalStorageKey = "alien-demo-dictionary:personal-meanings:v1";
 const writerStorageKey = "alien-demo-dictionary:writer-draft:v2";
 const saveEntryNamespace = "message-from-aliens:glyph-entry:runtime-v1";
 const saveEncryptionKey = "terrible_artwork";
@@ -47,35 +54,89 @@ function button(label, className, action) {
   return element;
 }
 
+function newSaveId() {
+  return globalThis.crypto?.randomUUID?.() || `save-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function activeSave() {
+  return saveProfiles.find((profile) => profile.id === activeSaveId) || null;
+}
+
+function selectActiveSave(id) {
+  const profile = saveProfiles.find((item) => item.id === id) || saveProfiles[0] || null;
+  activeSaveId = profile?.id || null;
+  personalMeanings = profile?.meanings || new Map();
+  personalImportSummary = profile?.importSummary || null;
+  if (!saveProfiles.some((item) => item.id === comparisonSaveId && item.id !== activeSaveId)) {
+    comparisonSaveId = saveProfiles.find((item) => item.id !== activeSaveId)?.id || null;
+  }
+  if (!comparisonSaveId) compareSaves = false;
+}
+
+function captionSaveProfiles() {
+  const primary = activeSave() || { id: "browser-local", name: "本地释义", meanings: personalMeanings, importSummary: null };
+  const secondary = saveProfiles.find((profile) => profile.id === comparisonSaveId);
+  return compareSaves && secondary && secondary.id !== primary.id ? [primary, secondary] : [primary];
+}
+
 function loadPersonalState() {
+  const validTokens = new Set(data.save_key_tokens);
+  const cleanMeanings = (raw) => new Map(
+    Object.entries(raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}).filter(([token, value]) => (
+      validTokens.has(token) && typeof value === "string" && value.length > 0
+    )),
+  );
   try {
     const stored = JSON.parse(localStorage.getItem(personalStorageKey) || "null");
-    if (!stored || stored.schema !== 1 || typeof stored.meanings !== "object" || Array.isArray(stored.meanings)) return;
-    const validTokens = new Set(data.save_key_tokens);
-    personalMeanings = new Map(
-      Object.entries(stored.meanings).filter(([token, value]) => (
-        validTokens.has(token) && typeof value === "string" && value.length > 0
-      )),
-    );
-    personalImportSummary = stored.importSummary && typeof stored.importSummary === "object"
-      ? stored.importSummary
-      : null;
+    if (stored?.schema === 2 && Array.isArray(stored.profiles)) {
+      const seen = new Set();
+      saveProfiles = stored.profiles.flatMap((profile) => {
+        if (!profile || typeof profile.id !== "string" || !profile.id || seen.has(profile.id)) return [];
+        seen.add(profile.id);
+        return [{
+          id: profile.id,
+          name: typeof profile.name === "string" && profile.name.trim() ? profile.name : "未命名存档",
+          meanings: cleanMeanings(profile.meanings),
+          importSummary: profile.importSummary && typeof profile.importSummary === "object" ? profile.importSummary : null,
+        }];
+      });
+      comparisonSaveId = stored.comparisonSaveId;
+      compareSaves = stored.compareSaves === true;
+      selectActiveSave(stored.activeSaveId);
+      showPersonalMeanings = stored.showPersonalMeanings === true;
+      highlightUndeciphered = stored.highlightUndeciphered === true;
+      return;
+    }
+  } catch {}
+  // Keep the original storage entry intact so migration is recoverable.
+  try {
+    const stored = JSON.parse(localStorage.getItem(legacyPersonalStorageKey) || "null");
+    if (!stored || stored.schema !== 1) return;
+    const meanings = cleanMeanings(stored.meanings);
+    const summary = stored.importSummary && typeof stored.importSummary === "object" ? stored.importSummary : null;
+    if (meanings.size || summary) {
+      saveProfiles = [{ id: newSaveId(), name: summary?.fileName || "本地释义", meanings, importSummary: summary }];
+      selectActiveSave(saveProfiles[0].id);
+    }
     showPersonalMeanings = stored.showPersonalMeanings === true;
     highlightUndeciphered = stored.highlightUndeciphered === true;
-  } catch {
-    personalMeanings = new Map();
-    personalImportSummary = null;
-    showPersonalMeanings = false;
-    highlightUndeciphered = false;
-  }
+    persistPersonalState();
+  } catch {}
 }
 
 function persistPersonalState() {
   try {
     localStorage.setItem(personalStorageKey, JSON.stringify({
-      schema: 1,
-      meanings: Object.fromEntries(personalMeanings),
-      importSummary: personalImportSummary,
+      schema: 2,
+      profiles: saveProfiles.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        meanings: Object.fromEntries(profile.meanings),
+        importSummary: profile.importSummary,
+      })),
+      activeSaveId,
+      comparisonSaveId,
+      compareSaves,
       showPersonalMeanings,
       highlightUndeciphered,
     }));
@@ -116,6 +177,16 @@ function personalMeaningForIndex(index) {
   return personalMeanings.get(data.save_key_tokens[index]) || "";
 }
 
+function profileMeaningForIndex(profile, index) {
+  return profile.meanings.get(data.save_key_tokens[index]) || "";
+}
+
+function matchingMeaning(index, query) {
+  return captionSaveProfiles()
+    .map((profile) => profileMeaningForIndex(profile, index))
+    .find((meaning) => isDecipheredMeaning(meaning) && meaning.toLocaleLowerCase().includes(query));
+}
+
 function isDecipheredMeaning(value) {
   const normalized = String(value || "").trim();
   return normalized.length > 0 && normalized !== "?" && normalized !== "？";
@@ -130,8 +201,69 @@ function decipheredCount() {
 }
 
 function markGlyphContainer(element, index) {
+  element.dataset.glyphIndex = String(index);
   if (highlightUndeciphered && !isDecipheredIndex(index)) element.classList.add("undeciphered-highlight");
   return element;
+}
+
+function makePersonalCaption(indexOrIndexes, className) {
+  const indexes = Array.isArray(indexOrIndexes) ? indexOrIndexes : [indexOrIndexes];
+  const profiles = captionSaveProfiles();
+  const label = document.createElement("span");
+  label.className = className;
+  if (profiles.length === 2) label.classList.add("comparison-caption");
+  profiles.forEach((profile, rowIndex) => {
+    const row = document.createElement("span");
+    row.className = "personal-meaning-row";
+    row.title = profile.name;
+    row.dataset.saveId = profile.id;
+    if (profiles.length === 2) {
+      const marker = document.createElement("span");
+      marker.className = `save-row-marker ${rowIndex ? "lower" : "upper"}`;
+      marker.textContent = rowIndex ? "下" : "上";
+      marker.setAttribute("aria-label", `${rowIndex ? "下排" : "上排"}：${profile.name}`);
+      row.append(marker);
+    }
+    const content = document.createElement("span");
+    content.className = "personal-meaning-row-content";
+    indexes.forEach((index, position) => {
+      if (position) {
+        const separator = document.createElement("span");
+        separator.className = "personal-meaning-separator";
+        separator.textContent = " / ";
+        content.append(separator);
+      }
+      const part = document.createElement("span");
+      part.className = "personal-meaning-part";
+      part.dataset.glyphIndex = String(index);
+      const meaning = profileMeaningForIndex(profile, index);
+      if (isDecipheredMeaning(meaning)) part.textContent = meaning;
+      else {
+        part.classList.add("missing");
+        part.textContent = "?";
+      }
+      content.append(part);
+    });
+    row.append(content);
+    label.append(row);
+  });
+  return label;
+}
+
+function refreshMeaningCaptions(profile, index) {
+  const meaning = profileMeaningForIndex(profile, index);
+  const deciphered = isDecipheredMeaning(meaning);
+  for (const part of document.querySelectorAll(".personal-meaning-part")) {
+    if (part.dataset.glyphIndex === String(index) && part.closest(".personal-meaning-row")?.dataset.saveId === profile.id) {
+      part.textContent = deciphered ? meaning : "?";
+      part.classList.toggle("missing", !deciphered);
+    }
+  }
+  if (profile.id === activeSaveId) {
+    for (const glyph of document.querySelectorAll("[data-glyph-index]:not(.personal-meaning-part)")) {
+      if (glyph.dataset.glyphIndex === String(index)) glyph.classList.toggle("undeciphered-highlight", highlightUndeciphered && !deciphered);
+    }
+  }
 }
 
 function withPersonalCaption(container, indexOrIndexes, variant) {
@@ -141,48 +273,47 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
   const stack = document.createElement("span");
   stack.className = `glyph-meaning-stack ${variant}-meaning-stack`;
   if (variant === "target") {
-    const editor = document.createElement("input");
-    editor.type = "text";
-    editor.className = "inline-personal-meaning target-personal-meaning-input";
-    editor.maxLength = 300;
-    editor.value = personalMeaningForIndex(index);
-    editor.placeholder = "?";
-    editor.title = "保存在此浏览器，不会写回游戏存档";
-    editor.setAttribute("aria-label", "编辑这个字的个人释义");
-    editor.addEventListener("input", () => {
-      const token = data.save_key_tokens[index];
-      if (editor.value.length > 0) personalMeanings.set(token, editor.value);
-      else personalMeanings.delete(token);
-      const persisted = persistPersonalState();
-      editor.title = persisted
-        ? "已保存到此浏览器，不会写回游戏存档"
-        : "浏览器未允许保存这次修改";
-      container.classList.toggle(
-        "undeciphered-highlight",
-        highlightUndeciphered && !isDecipheredMeaning(editor.value),
-      );
+    stack.append(container);
+    const profiles = captionSaveProfiles();
+    profiles.forEach((profile, rowIndex) => {
+      const editor = document.createElement("input");
+      editor.type = "text";
+      editor.className = "inline-personal-meaning target-personal-meaning-input";
+      editor.maxLength = 300;
+      editor.value = profileMeaningForIndex(profile, index);
+      editor.dataset.saveId = profile.id;
+      editor.placeholder = "?";
+      editor.title = "保存在此浏览器，不会写回游戏存档";
+      editor.setAttribute("aria-label", profiles.length === 2 ? `编辑${rowIndex ? "下排" : "上排"}存档的个人释义` : "编辑这个字的个人释义");
+      editor.addEventListener("input", () => {
+        if (!saveProfiles.some((item) => item.id === profile.id)) {
+          saveProfiles.push(profile);
+          selectActiveSave(profile.id);
+        }
+        const token = data.save_key_tokens[index];
+        if (editor.value.length > 0) profile.meanings.set(token, editor.value);
+        else profile.meanings.delete(token);
+        const persisted = persistPersonalState();
+        editor.title = persisted
+          ? "已保存到此浏览器，不会写回游戏存档"
+          : "浏览器未允许保存这次修改";
+        refreshMeaningCaptions(profile, index);
+        renderSaveProfileControls();
+      });
+      if (profiles.length === 2) {
+        const row = document.createElement("label");
+        row.className = "target-save-editor";
+        row.title = profile.name;
+        const marker = document.createElement("span");
+        marker.className = `save-row-marker ${rowIndex ? "lower" : "upper"}`;
+        marker.textContent = rowIndex ? "下" : "上";
+        row.append(marker, editor);
+        stack.append(row);
+      } else stack.append(editor);
     });
-    stack.append(container, editor);
     return stack;
   }
-  const label = document.createElement("span");
-  label.className = "inline-personal-meaning";
-  indexes.forEach((captionIndex, position) => {
-    if (position) {
-      const separator = document.createElement("span");
-      separator.className = "personal-meaning-separator";
-      separator.textContent = " / ";
-      label.append(separator);
-    }
-    const part = document.createElement("span");
-    part.className = "personal-meaning-part";
-    if (isDecipheredIndex(captionIndex)) part.textContent = personalMeaningForIndex(captionIndex);
-    else {
-      part.classList.add("missing");
-      part.textContent = "?";
-    }
-    label.append(part);
-  });
+  const label = makePersonalCaption(indexes, "inline-personal-meaning");
   stack.append(container, label);
   return stack;
 }
@@ -190,7 +321,7 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
 function personalProgressText() {
   const recognized = decipheredCount();
   const percentage = data.count > 0 ? (recognized * 100 / data.count).toFixed(1) : "0.0";
-  return `破译进度：${recognized} / ${data.count}（${percentage}%）`;
+  return `${compareSaves ? "上排" : ""}破译进度：${recognized} / ${data.count}（${percentage}%）`;
 }
 
 function bytesFromBase64(text) {
@@ -228,10 +359,7 @@ async function saveTokenForKey(key) {
   return [...digest.slice(0, 8)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function importSaveFile(file) {
-  saveImportStatus = { kind: "loading", text: "正在读取存档…" };
-  render();
-  try {
+async function readSaveProfile(file) {
     if (!file || file.size > 5 * 1024 * 1024) throw new Error("save file is missing or too large");
     const payload = await decryptSave(await file.text());
     if (
@@ -257,10 +385,8 @@ async function importSaveFile(file) {
       if (typeof row.value === "string" && row.value.length > 0) imported.set(row.token, row.value);
     }
 
-    personalMeanings = imported;
-    showPersonalMeanings = true;
     const recognized = [...imported.values()].filter(isDecipheredMeaning).length;
-    personalImportSummary = {
+    const importSummary = {
       fileName: file.name,
       version: ["string", "number"].includes(typeof payload.version) ? String(payload.version) : "未知",
       recognized,
@@ -268,30 +394,64 @@ async function importSaveFile(file) {
       ignored,
       importedAt: Date.now(),
     };
+    return { id: newSaveId(), name: file.name || "未命名存档", meanings: imported, importSummary };
+}
+
+async function importSaveFiles(files) {
+  const selected = Array.from(files || []);
+  if (!selected.length || importingSaves) return;
+  importingSaves = true;
+  saveImportStatus = { kind: "loading", text: `正在读取 ${selected.length} 个存档…` };
+  render();
+  const imported = [];
+  let failures = 0;
+  for (const file of selected) {
+    try {
+      const profile = await readSaveProfile(file);
+      const originalName = profile.name;
+      let suffix = 2;
+      while ([...saveProfiles, ...imported].some((item) => item.name === profile.name)) {
+        profile.name = `${originalName}（${suffix++}）`;
+      }
+      imported.push(profile);
+    } catch {
+      failures += 1;
+    }
+  }
+  importingSaves = false;
+  if (imported.length) {
+    saveProfiles.push(...imported);
+    selectActiveSave(activeSaveId || imported[0].id);
+    const newComparison = imported.find((profile) => profile.id !== activeSaveId);
+    if (newComparison) {
+      comparisonSaveId = newComparison.id;
+      compareSaves = true;
+    }
+    showPersonalMeanings = true;
     const persisted = persistPersonalState();
     saveImportStatus = {
-      kind: persisted ? "success" : "warning",
+      kind: persisted && !failures ? "success" : "warning",
       text: persisted
-        ? `已导入 ${imported.size} 条个人释义；${data.count - imported.size} 个字未标注。`
-        : `已导入 ${imported.size} 条个人释义，但浏览器未允许持久保存。`,
+        ? `已导入 ${imported.length} 个存档，现有 ${saveProfiles.length} 个。${failures ? `另有 ${failures} 个文件无法读取。` : ""}`
+        : `已导入 ${imported.length} 个存档，但浏览器未能保存，请勿关闭页面。`,
     };
-    saveImportStatus.text = persisted
-      ? `已导入 ${recognized} 条有效个人释义；${data.count - recognized} 个字未破译。`
-      : `已导入 ${recognized} 条有效个人释义，但浏览器未能将它们持久保存。`;
-  } catch (error) {
-    console.error(error);
-    saveImportStatus = { kind: "error", text: "无法读取这个存档：文件格式或版本不受支持。" };
+  } else {
+    saveImportStatus = { kind: "error", text: "无法读取所选存档：文件格式或版本不受支持。原有存档已保留。" };
   }
   render();
+}
+
+async function importSaveFile(file) {
+  return importSaveFiles([file]);
 }
 
 function chooseSaveFile() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".sav,.backup";
+  input.multiple = true;
   input.addEventListener("change", () => {
-    const [file] = input.files || [];
-    if (file) importSaveFile(file);
+    importSaveFiles(input.files);
   });
   input.click();
 }
@@ -345,7 +505,7 @@ function normalizedState(raw) {
   return {
     view: "home",
     filter: validFilters.has(state.filter) ? state.filter : "all",
-    undecipheredOnly: state.undecipheredOnly === true && personalImportSummary !== null,
+    undecipheredOnly: state.undecipheredOnly === true && saveProfiles.length > 0,
     scrollY,
     depth,
   };
@@ -409,7 +569,8 @@ function renderTopActions() {
   const writer = button("外星写作", "nav-button", goWriter);
   writer.setAttribute("aria-pressed", String(currentState.view === "writer"));
   const importButton = button("导入存档", "nav-button", chooseSaveFile);
-  importButton.title = "存档路径参考：C:\\Users\\<你的用户名>\\AppData\\LocalLow\\Artless Games\\MessageFromAliens\\alienmessage1.sav（槽位 2/3 对应 alienmessage2.sav、alienmessage3.sav）";
+  importButton.disabled = importingSaves;
+  importButton.title = "可一次选择多个存档文件。存档路径参考：C:\\Users\\<你的用户名>\\AppData\\LocalLow\\Artless Games\\MessageFromAliens\\alienmessage1.sav（其他槽位对应 alienmessage2.sav 等）";
   const visibility = button(showPersonalMeanings ? "隐藏释义" : "显示释义", "nav-button", () => {
     showPersonalMeanings = !showPersonalMeanings;
     persistPersonalState();
@@ -422,11 +583,104 @@ function renderTopActions() {
     render();
   });
   highlight.setAttribute("aria-pressed", String(highlightUndeciphered));
-  topActions.append(componentSearch, meaningSearch, writer, importButton, visibility, highlight);
+  const compare = button("存档对比", "nav-button save-compare-toggle", () => {
+    compareSaves = !compareSaves;
+    if (compareSaves) showPersonalMeanings = true;
+    persistPersonalState();
+    render();
+  });
+  compare.disabled = saveProfiles.length < 2;
+  compare.title = saveProfiles.length < 2 ? "导入至少两个存档后，可上下对比释义" : "上下两排显示所选两个存档的释义";
+  compare.setAttribute("aria-pressed", String(compareSaves));
+  topActions.append(componentSearch, meaningSearch, writer, importButton, compare, visibility, highlight);
   if (currentState.view !== "home") {
     const back = button("← 上一页", "nav-button", goBack);
     back.disabled = currentState.depth === 0;
     topActions.append(back, button("返回首页", "nav-button", goHome));
+  }
+  renderSaveProfileControls();
+}
+
+function renderSaveProfileControls() {
+  if (!saveProfileControls) return;
+  saveProfileControls.replaceChildren();
+  saveProfileControls.hidden = !saveProfiles.length && !saveImportStatus;
+  if (saveProfiles.length) {
+    const controls = document.createElement("div");
+    controls.className = "save-profile-selectors";
+    function makeSelector(labelText, id, selectedId, profiles, onChange) {
+      const label = document.createElement("label");
+      label.className = "save-profile-selector";
+      const text = document.createElement("span");
+      text.textContent = labelText;
+      const select = document.createElement("select");
+      select.id = id;
+      select.setAttribute("aria-label", labelText);
+      for (const profile of profiles) {
+        const option = document.createElement("option");
+        const recognized = [...profile.meanings.values()].filter(isDecipheredMeaning).length;
+        option.value = profile.id;
+        option.textContent = `${profile.name}（${recognized}/${data.count}）`;
+        select.append(option);
+      }
+      select.value = selectedId;
+      select.addEventListener("change", () => {
+        onChange(select.value);
+        if (!persistPersonalState()) saveImportStatus = { kind: "warning", text: "浏览器未能保存这次存档选择。" };
+        render();
+      });
+      label.append(text, select);
+      controls.append(label);
+    }
+    makeSelector(compareSaves ? "上排存档" : "当前存档", "active-save-select", activeSaveId, saveProfiles, (id) => {
+      const previousId = activeSaveId;
+      if (id === comparisonSaveId) comparisonSaveId = previousId;
+      selectActiveSave(id);
+    });
+    if (compareSaves) {
+      makeSelector("下排存档", "comparison-save-select", comparisonSaveId, saveProfiles.filter((profile) => profile.id !== activeSaveId), (id) => {
+        comparisonSaveId = id;
+      });
+      controls.append(button("交换上下排", "utility-button save-swap-button", () => {
+        const previousId = activeSaveId;
+        selectActiveSave(comparisonSaveId);
+        comparisonSaveId = previousId;
+        persistPersonalState();
+        render();
+      }));
+    }
+    controls.append(button("重命名", "clear-button", () => {
+      const profile = activeSave();
+      const name = window.prompt("给当前存档起一个名字，方便区分：", profile.name);
+      if (name === null || !name.trim()) return;
+      profile.name = name.trim().slice(0, 100);
+      persistPersonalState();
+      render();
+    }));
+    controls.append(button("移除", "clear-button", () => {
+      const profile = activeSave();
+      if (!window.confirm(`从浏览器移除“${profile.name}”？这份存档的网页修改也会移除，游戏文件不受影响。`)) return;
+      saveProfiles = saveProfiles.filter((item) => item.id !== profile.id);
+      selectActiveSave(null);
+      saveImportStatus = null;
+      currentState = normalizedState(currentState);
+      persistPersonalState();
+      render();
+    }));
+    const note = document.createElement("span");
+    note.className = "save-profile-note";
+    note.textContent = compareSaves
+      ? "查字同时搜索上下两份释义；进度和未破译高亮以上排为准。"
+      : `已保存 ${saveProfiles.length} 个存档，可继续导入。`;
+    controls.append(note);
+    saveProfileControls.append(controls);
+  }
+  if (saveImportStatus) {
+    const status = document.createElement("p");
+    status.className = `save-profile-status ${saveImportStatus.kind}`;
+    status.setAttribute("role", "status");
+    status.textContent = saveImportStatus.text;
+    saveProfileControls.append(status);
   }
 }
 
@@ -446,16 +700,7 @@ function makeGlyphCard(index) {
   card.append(glyphImage(index));
   if (showPersonalMeanings) {
     card.classList.add("shows-personal-meaning");
-    const label = document.createElement("span");
-    label.className = "personal-meaning-label";
-    const meaning = personalMeaningForIndex(index);
-    if (isDecipheredMeaning(meaning)) {
-      label.textContent = meaning;
-    } else {
-      label.classList.add("missing");
-      label.textContent = "?";
-      label.title = "存档中未标注这个字";
-    }
+    const label = makePersonalCaption(index, "personal-meaning-label");
     card.append(label);
   }
   card.addEventListener("click", () => navigate({ view: "detail", index }));
@@ -553,17 +798,7 @@ function renderHome() {
   toolbar.append(makeNotWordKey(), makeStartupOnlyKey(), filters);
   heading.append(toolbar);
   shell.append(heading);
-  const status = saveImportStatus || (personalImportSummary ? {
-    kind: "success",
-    text: `已载入 ${personalImportSummary.fileName}：${personalImportSummary.recognized} 条个人释义，${personalImportSummary.missing} 个字未标注，存档版本 ${personalImportSummary.version}。`,
-  } : null);
-  if (status) {
-    const statusLine = document.createElement("p");
-    statusLine.className = `save-import-status ${status.kind}`;
-    statusLine.textContent = status.text;
-    shell.append(statusLine);
-  }
-  if (personalImportSummary) {
+  if (activeSave()) {
     const progressCard = document.createElement("div");
     progressCard.className = "save-progress";
     const progressText = document.createElement("strong");
@@ -787,8 +1022,7 @@ function renderMeaningSearch() {
   const query = currentState.query.trim().toLocaleLowerCase();
   const matches = query
     ? sortByPathLength(entries.flatMap((_, index) => {
-      const meaning = personalMeaningForIndex(index);
-      return isDecipheredMeaning(meaning) && meaning.toLocaleLowerCase().includes(query) ? [index] : [];
+      return matchingMeaning(index, query) ? [index] : [];
     }))
     : [];
   const title = document.createElement("h2");
@@ -938,8 +1172,8 @@ function renderWriter() {
     if (!query) return [];
     return entries
       .flatMap((_, index) => {
-        const meaning = personalMeaningForIndex(index);
-        return isDecipheredMeaning(meaning) && meaning.toLocaleLowerCase().includes(query)
+        const meaning = matchingMeaning(index, query);
+        return meaning
           ? [{ index, meaning }]
           : [];
       })
@@ -959,7 +1193,7 @@ function renderWriter() {
     const matches = matchingCandidates();
     candidates.replaceChildren();
     if (!query) {
-      candidateStatus.textContent = decipheredCount()
+      candidateStatus.textContent = captionSaveProfiles().some((profile) => [...profile.meanings.values()].some(isDecipheredMeaning))
         ? "输入释义开始找字。输入框为空时按空格可插入空位。"
         : "请先导入存档，或在单字页填写个人释义。";
       return matches;
@@ -975,9 +1209,7 @@ function renderWriter() {
       if (entries[index].startup_only) candidate.classList.add("startup-only");
       candidate.setAttribute("aria-label", `输入“${meaning}”`);
       candidate.append(glyphImage(index));
-      const label = document.createElement("span");
-      label.textContent = meaning;
-      candidate.append(label);
+      if (showPersonalMeanings) candidate.append(makePersonalCaption(index, "writer-candidate-caption"));
       candidate.addEventListener("click", () => {
         insertToken(index);
         input.value = "";
