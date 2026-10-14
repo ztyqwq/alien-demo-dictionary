@@ -23,12 +23,16 @@ let highlightUndeciphered = false;
 let saveImportStatus = null;
 let writerDraft = [];
 let writerCursor = 0;
+let comparisonColorOverrides = {};
+const meaningComparisonCache = new Map();
 
 const validFilters = new Set(["all", "direct", "dictionary"]);
 const atlasColumns = 16;
 const personalStorageKey = "alien-demo-dictionary:personal-meanings:v2";
 const legacyPersonalStorageKey = "alien-demo-dictionary:personal-meanings:v1";
 const writerStorageKey = "alien-demo-dictionary:writer-draft:v2";
+const comparisonColorStorageKey = "alien-demo-dictionary:comparison-colors:v1";
+const defaultComparisonPalette = Object.freeze({ exact: "#e4f4e7", similar: "#fff4c8", different: "#fbe4e4" });
 const saveEntryNamespace = "message-from-aliens:glyph-entry:runtime-v1";
 const saveEncryptionKey = "terrible_artwork";
 const saveEncryptionIv = "wedidn'tplaytest";
@@ -196,6 +200,219 @@ function isDecipheredIndex(index) {
   return isDecipheredMeaning(personalMeaningForIndex(index));
 }
 
+function comparisonPairKey() {
+  const profiles = captionSaveProfiles();
+  return profiles.length === 2 ? JSON.stringify(profiles.map((profile) => profile.id).sort()) : null;
+}
+
+function validColor(value) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function loadComparisonColors() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(comparisonColorStorageKey) || "null");
+    if (stored?.schema === 1) {
+      const validTokens = new Set(data.save_key_tokens);
+      const validProfiles = new Set(saveProfiles.map((profile) => profile.id));
+      if (stored.overrides && typeof stored.overrides === "object" && !Array.isArray(stored.overrides)) {
+        for (const [key, overrides] of Object.entries(stored.overrides)) {
+          let ids;
+          try { ids = JSON.parse(key); } catch { continue; }
+          if (!Array.isArray(ids) || ids.length !== 2 || ids[0] === ids[1] || !ids.every((id) => validProfiles.has(id))) continue;
+          if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) continue;
+          const clean = Object.fromEntries(Object.entries(overrides).filter(([token, color]) => validTokens.has(token) && validColor(color)));
+          if (Object.keys(clean).length) comparisonColorOverrides[JSON.stringify(ids.sort())] = clean;
+        }
+      }
+    }
+  } catch {}
+}
+
+function persistComparisonColors() {
+  try {
+    localStorage.setItem(comparisonColorStorageKey, JSON.stringify({
+      schema: 1,
+      overrides: comparisonColorOverrides,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizedComparisonMeaning(value) {
+  return String(value || "").normalize("NFC").trim();
+}
+
+function meaningSimilarity(first, second) {
+  if (first === second) return 1;
+  let left = Array.from(first);
+  let right = Array.from(second);
+  const length = Math.max(left.length, right.length);
+  if (!length) return 1;
+  let prefix = 0;
+  while (prefix < Math.min(left.length, right.length) && left[prefix] === right[prefix]) prefix += 1;
+  left = left.slice(prefix);
+  right = right.slice(prefix);
+  while (left.length && right.length && left.at(-1) === right.at(-1)) {
+    left.pop();
+    right.pop();
+  }
+  if (!left.length || !right.length) return 1 - Math.max(left.length, right.length) / length;
+  if (left.length > right.length) [left, right] = [right, left];
+  let previous = Array.from({ length: left.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= right.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= left.length; column += 1) {
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + Number(left[column - 1] !== right[row - 1]),
+      );
+    }
+    previous = current;
+  }
+  return 1 - previous[left.length] / length;
+}
+
+function comparisonForIndex(index) {
+  const profiles = captionSaveProfiles();
+  if (profiles.length !== 2) return null;
+  const pairKey = comparisonPairKey();
+  const token = data.save_key_tokens[index];
+  const ordered = [...profiles].sort((left, right) => left.id.localeCompare(right.id));
+  const values = ordered.map((profile) => normalizedComparisonMeaning(profileMeaningForIndex(profile, index)));
+  const cacheKey = `${pairKey}:${token}`;
+  let cached = meaningComparisonCache.get(cacheKey);
+  if (!cached || cached.first !== values[0] || cached.second !== values[1]) {
+    const available = values.map(isDecipheredMeaning);
+    let category = null;
+    if (available.some(Boolean)) {
+      if (!available.every(Boolean)) category = "different";
+      else if (values[0] === values[1]) category = "exact";
+      else category = meaningSimilarity(...values) >= 0.5 ? "similar" : "different";
+    }
+    cached = { first: values[0], second: values[1], category };
+    if (meaningComparisonCache.size > data.count * 4) meaningComparisonCache.clear();
+    meaningComparisonCache.set(cacheKey, cached);
+  }
+  const manualColor = comparisonColorOverrides[pairKey]?.[token] || null;
+  return { category: cached.category, manualColor, pairKey, token };
+}
+
+function applyComparisonColor(element, index) {
+  const result = comparisonForIndex(index);
+  // Route glyphs keep the click-type color; their captions carry comparison colors.
+  const colored = !element.classList.contains("mini-glyph") && result && (result.category || result.manualColor);
+  element.classList.toggle("comparison-colored", Boolean(colored));
+  if (colored) {
+    element.style.setProperty("--comparison-background", result.manualColor || `var(--comparison-${result.category})`);
+    element.dataset.comparisonCategory = result.manualColor ? "manual" : result.category;
+  } else {
+    element.style.removeProperty("--comparison-background");
+    delete element.dataset.comparisonCategory;
+  }
+}
+
+function refreshComparisonGlyphs(index) {
+  for (const glyph of document.querySelectorAll("[data-glyph-index]:not(.personal-meaning-part)")) {
+    if (glyph.dataset.glyphIndex === String(index)) applyComparisonColor(glyph, index);
+  }
+  refreshEntryColorControl(index);
+}
+
+function setEntryComparisonColor(index, color) {
+  const result = comparisonForIndex(index);
+  if (!result || (color !== null && !validColor(color))) return;
+  if (color) {
+    comparisonColorOverrides[result.pairKey] ||= {};
+    comparisonColorOverrides[result.pairKey][result.token] = color;
+  } else if (comparisonColorOverrides[result.pairKey]) {
+    delete comparisonColorOverrides[result.pairKey][result.token];
+    if (!Object.keys(comparisonColorOverrides[result.pairKey]).length) delete comparisonColorOverrides[result.pairKey];
+  }
+  const persisted = persistComparisonColors();
+  refreshComparisonGlyphs(index);
+  const control = document.querySelector(".entry-color-control");
+  if (control) {
+    const note = control.querySelector(".entry-color-note");
+    note.textContent = persisted ? "只保存在此浏览器，适用于当前两份存档。" : "浏览器未能保存这次改色；当前页面仍可使用。";
+    note.classList.toggle("warning", !persisted);
+  }
+}
+
+function refreshEntryColorControl(index) {
+  const control = document.querySelector(".entry-color-control");
+  if (!control || control.dataset.entryIndex !== String(index)) return;
+  const result = comparisonForIndex(index);
+  if (!result) return;
+  const categories = { exact: "完全相同", similar: "相似度 ≥ 50%", different: "不同", neutral: "均未填写" };
+  control.querySelector(".entry-color-status").textContent = result.manualColor
+    ? `手动标色（自动判断：${categories[result.category || "neutral"]}）`
+    : `自动判断：${categories[result.category || "neutral"]}`;
+  control.querySelector(".entry-color-picker").value = result.manualColor || defaultComparisonPalette[result.category] || "#ffffff";
+  control.querySelector(".entry-color-reset").disabled = !result.manualColor;
+  for (const swatch of control.querySelectorAll(".entry-color-swatch")) {
+    swatch.setAttribute("aria-pressed", String(swatch.dataset.color === result.manualColor?.toLowerCase()));
+  }
+}
+
+function makeEntryColorControl(index) {
+  const control = document.createElement("div");
+  control.className = "entry-color-control";
+  control.dataset.entryIndex = String(index);
+  const heading = document.createElement("strong");
+  heading.textContent = "此字对比底色";
+  const status = document.createElement("span");
+  status.className = "entry-color-status";
+  const actions = document.createElement("div");
+  actions.className = "entry-color-actions";
+  for (const [category, name] of [["exact", "浅绿"], ["similar", "浅黄"], ["different", "浅红"]]) {
+    const color = defaultComparisonPalette[category];
+    const swatch = button(name, "entry-color-swatch", () => setEntryComparisonColor(index, color));
+    swatch.dataset.color = color;
+    swatch.style.backgroundColor = color;
+    swatch.setAttribute("aria-label", `将此字标为${name}`);
+    actions.append(swatch);
+  }
+  const label = document.createElement("label");
+  label.className = "entry-color-custom";
+  label.append("自选");
+  const picker = document.createElement("input");
+  picker.type = "color";
+  picker.className = "entry-color-picker";
+  picker.setAttribute("aria-label", "自选此字的对比底色");
+  picker.addEventListener("input", () => setEntryComparisonColor(index, picker.value));
+  label.append(picker);
+  actions.append(label, button("恢复自动", "clear-button entry-color-reset", () => setEntryComparisonColor(index, null)));
+  const note = document.createElement("span");
+  note.className = "entry-color-note";
+  note.setAttribute("role", "status");
+  note.textContent = "只保存在此浏览器，适用于当前两份存档。";
+  control.append(heading, status, actions, note);
+  return control;
+}
+
+function makeComparisonLegend() {
+  const legend = document.createElement("div");
+  legend.className = "comparison-legend";
+  for (const [category, text] of [["exact", "完全相同"], ["similar", "相似度 ≥ 50%"], ["different", "不同"]]) {
+    const item = document.createElement("span");
+    item.className = "comparison-legend-item";
+    const dot = document.createElement("i");
+    dot.style.backgroundColor = defaultComparisonPalette[category];
+    item.append(dot, text);
+    legend.append(item);
+  }
+  const note = document.createElement("span");
+  note.className = "comparison-legend-note";
+  note.textContent = "均未填写不着色；点进单字可手动改色。";
+  note.title = "文字相似度 = 1 − 编辑距离 / 较长释义的字数；忽略首尾空白。两边都未填写或只填问号时不着色。";
+  legend.append(note);
+  return legend;
+}
+
 function decipheredCount() {
   return entries.reduce((count, _, index) => count + Number(isDecipheredIndex(index)), 0);
 }
@@ -203,6 +420,7 @@ function decipheredCount() {
 function markGlyphContainer(element, index) {
   element.dataset.glyphIndex = String(index);
   if (highlightUndeciphered && !isDecipheredIndex(index)) element.classList.add("undeciphered-highlight");
+  applyComparisonColor(element, index);
   return element;
 }
 
@@ -212,18 +430,11 @@ function makePersonalCaption(indexOrIndexes, className) {
   const label = document.createElement("span");
   label.className = className;
   if (profiles.length === 2) label.classList.add("comparison-caption");
-  profiles.forEach((profile, rowIndex) => {
+  profiles.forEach((profile) => {
     const row = document.createElement("span");
     row.className = "personal-meaning-row";
     row.title = profile.name;
     row.dataset.saveId = profile.id;
-    if (profiles.length === 2) {
-      const marker = document.createElement("span");
-      marker.className = `save-row-marker ${rowIndex ? "lower" : "upper"}`;
-      marker.textContent = rowIndex ? "下" : "上";
-      marker.setAttribute("aria-label", `${rowIndex ? "下排" : "上排"}：${profile.name}`);
-      row.append(marker);
-    }
     const content = document.createElement("span");
     content.className = "personal-meaning-row-content";
     indexes.forEach((index, position) => {
@@ -264,12 +475,17 @@ function refreshMeaningCaptions(profile, index) {
       if (glyph.dataset.glyphIndex === String(index)) glyph.classList.toggle("undeciphered-highlight", highlightUndeciphered && !deciphered);
     }
   }
+  refreshComparisonGlyphs(index);
 }
 
 function withPersonalCaption(container, indexOrIndexes, variant) {
-  if (!showPersonalMeanings) return container;
   const indexes = Array.isArray(indexOrIndexes) ? indexOrIndexes : [indexOrIndexes];
   const index = indexes[0];
+  if (indexes.length === 1) {
+    container.dataset.glyphIndex = String(index);
+    applyComparisonColor(container, index);
+  }
+  if (!showPersonalMeanings) return container;
   const stack = document.createElement("span");
   stack.className = `glyph-meaning-stack ${variant}-meaning-stack`;
   if (variant === "target") {
@@ -284,7 +500,7 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
       editor.dataset.saveId = profile.id;
       editor.placeholder = "?";
       editor.title = "保存在此浏览器，不会写回游戏存档";
-      editor.setAttribute("aria-label", profiles.length === 2 ? `编辑${rowIndex ? "下排" : "上排"}存档的个人释义` : "编辑这个字的个人释义");
+      editor.setAttribute("aria-label", profiles.length === 2 ? `编辑存档 ${rowIndex + 1} 的个人释义` : "编辑这个字的个人释义");
       editor.addEventListener("input", () => {
         if (!saveProfiles.some((item) => item.id === profile.id)) {
           saveProfiles.push(profile);
@@ -304,16 +520,14 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
         const row = document.createElement("label");
         row.className = "target-save-editor";
         row.title = profile.name;
-        const marker = document.createElement("span");
-        marker.className = `save-row-marker ${rowIndex ? "lower" : "upper"}`;
-        marker.textContent = rowIndex ? "下" : "上";
-        row.append(marker, editor);
+        row.append(editor);
         stack.append(row);
       } else stack.append(editor);
     });
     return stack;
   }
   const label = makePersonalCaption(indexes, "inline-personal-meaning");
+  if (variant === "mini") markGlyphContainer(label, index);
   stack.append(container, label);
   return stack;
 }
@@ -321,7 +535,7 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
 function personalProgressText() {
   const recognized = decipheredCount();
   const percentage = data.count > 0 ? (recognized * 100 / data.count).toFixed(1) : "0.0";
-  return `${compareSaves ? "上排" : ""}破译进度：${recognized} / ${data.count}（${percentage}%）`;
+  return `${compareSaves ? "存档 1 " : ""}破译进度：${recognized} / ${data.count}（${percentage}%）`;
 }
 
 function bytesFromBase64(text) {
@@ -590,7 +804,7 @@ function renderTopActions() {
     render();
   });
   compare.disabled = saveProfiles.length < 2;
-  compare.title = saveProfiles.length < 2 ? "导入至少两个存档后，可上下对比释义" : "上下两排显示所选两个存档的释义";
+  compare.title = saveProfiles.length < 2 ? "导入至少两个存档后，可对比释义" : "分两排显示所选两个存档的释义";
   compare.setAttribute("aria-pressed", String(compareSaves));
   topActions.append(componentSearch, meaningSearch, writer, importButton, compare, visibility, highlight);
   if (currentState.view !== "home") {
@@ -632,16 +846,16 @@ function renderSaveProfileControls() {
       label.append(text, select);
       controls.append(label);
     }
-    makeSelector(compareSaves ? "上排存档" : "当前存档", "active-save-select", activeSaveId, saveProfiles, (id) => {
+    makeSelector(compareSaves ? "存档 1" : "当前存档", "active-save-select", activeSaveId, saveProfiles, (id) => {
       const previousId = activeSaveId;
       if (id === comparisonSaveId) comparisonSaveId = previousId;
       selectActiveSave(id);
     });
     if (compareSaves) {
-      makeSelector("下排存档", "comparison-save-select", comparisonSaveId, saveProfiles.filter((profile) => profile.id !== activeSaveId), (id) => {
+      makeSelector("存档 2", "comparison-save-select", comparisonSaveId, saveProfiles.filter((profile) => profile.id !== activeSaveId), (id) => {
         comparisonSaveId = id;
       });
-      controls.append(button("交换上下排", "utility-button save-swap-button", () => {
+      controls.append(button("交换存档", "utility-button save-swap-button", () => {
         const previousId = activeSaveId;
         selectActiveSave(comparisonSaveId);
         comparisonSaveId = previousId;
@@ -661,6 +875,10 @@ function renderSaveProfileControls() {
       const profile = activeSave();
       if (!window.confirm(`从浏览器移除“${profile.name}”？这份存档的网页修改也会移除，游戏文件不受影响。`)) return;
       saveProfiles = saveProfiles.filter((item) => item.id !== profile.id);
+      for (const key of Object.keys(comparisonColorOverrides)) {
+        if (JSON.parse(key).includes(profile.id)) delete comparisonColorOverrides[key];
+      }
+      persistComparisonColors();
       selectActiveSave(null);
       saveImportStatus = null;
       currentState = normalizedState(currentState);
@@ -670,10 +888,11 @@ function renderSaveProfileControls() {
     const note = document.createElement("span");
     note.className = "save-profile-note";
     note.textContent = compareSaves
-      ? "查字同时搜索上下两份释义；进度和未破译高亮以上排为准。"
+      ? "查字同时搜索两份释义；进度和未破译高亮以存档 1 为准。"
       : `已保存 ${saveProfiles.length} 个存档，可继续导入。`;
     controls.append(note);
     saveProfileControls.append(controls);
+    if (compareSaves) saveProfileControls.append(makeComparisonLegend());
   }
   if (saveImportStatus) {
     const status = document.createElement("p");
@@ -710,7 +929,7 @@ function makeGlyphCard(index) {
 function makeNotWordKey() {
   const key = document.createElement("span");
   key.className = "not-word-key";
-  key.textContent = "黄底：非正式字";
+  key.textContent = compareSaves ? "黄边：非正式字" : "黄底：非正式字";
   key.title = "游戏里写出其不是字";
   return key;
 }
@@ -718,7 +937,7 @@ function makeNotWordKey() {
 function makeStartupOnlyKey() {
   const key = document.createElement("span");
   key.className = "startup-only-key";
-  key.textContent = "绿底：仅启动左页可达";
+  key.textContent = compareSaves ? "绿边：仅启动左页可达" : "绿底：仅启动左页可达";
   key.title = "游戏开始时左边会有一个问好页，只能通过这个页进入该字";
   return key;
 }
@@ -1207,6 +1426,7 @@ function renderWriter() {
       candidate.className = "writer-candidate";
       if (entries[index].not_word) candidate.classList.add("not-word");
       if (entries[index].startup_only) candidate.classList.add("startup-only");
+      markGlyphContainer(candidate, index);
       candidate.setAttribute("aria-label", `输入“${meaning}”`);
       candidate.append(glyphImage(index));
       if (showPersonalMeanings) candidate.append(makePersonalCaption(index, "writer-candidate-caption"));
@@ -1673,6 +1893,7 @@ function renderDetail() {
     meaningValue.append(empty);
   }
   heroText.append(meta, meaningValue);
+  if (compareSaves) heroText.append(makeEntryColorControl(currentState.index));
   hero.append(targetDisplay, heroText);
 
   const panel = document.createElement("section");
@@ -1702,6 +1923,7 @@ function render() {
   else if (currentState.view === "writer") renderWriter();
   else if (currentState.view === "detail") renderDetail();
   else renderHome();
+  if (currentState.view === "detail") refreshEntryColorControl(currentState.index);
   const desiredScroll = currentState.scrollY ?? 0;
   requestAnimationFrame(() => window.scrollTo(0, desiredScroll));
   live.textContent = currentState.view === "detail"
@@ -1743,6 +1965,7 @@ fetch("data/app-data.json?v=ad48e478cb04")
     atomVariants = new Map(loaded.atom_variants.map((group) => [group.atom, group.variants]));
     atlasRows = Math.ceil(entries.length / atlasColumns);
     loadPersonalState();
+    loadComparisonColors();
     loadWriterDraft();
     const atomUsageCounts = new Map(loaded.atom_indices.map((atom) => [atom, 0]));
     for (const entry of entries) {
