@@ -303,8 +303,8 @@ function comparisonForIndex(index) {
 
 function applyComparisonColor(element, index) {
   const result = comparisonForIndex(index);
-  // Route glyphs keep the click-type color; their captions carry comparison colors.
-  const colored = !element.classList.contains("mini-glyph") && result && (result.category || result.manualColor);
+  // Comparison colors belong only to personal meanings, never to glyphs or buttons.
+  const colored = element.classList.contains("comparison-meaning") && result && (result.category || result.manualColor);
   element.classList.toggle("comparison-colored", Boolean(colored));
   if (colored) {
     element.style.setProperty("--comparison-background", result.manualColor || `var(--comparison-${result.category})`);
@@ -315,9 +315,16 @@ function applyComparisonColor(element, index) {
   }
 }
 
-function refreshComparisonGlyphs(index) {
-  for (const glyph of document.querySelectorAll("[data-glyph-index]:not(.personal-meaning-part)")) {
-    if (glyph.dataset.glyphIndex === String(index)) applyComparisonColor(glyph, index);
+function markComparisonMeaning(element, index) {
+  element.classList.add("comparison-meaning");
+  element.dataset.comparisonIndex = String(index);
+  applyComparisonColor(element, index);
+  return element;
+}
+
+function refreshComparisonMeanings(index) {
+  for (const meaning of document.querySelectorAll("[data-comparison-index]")) {
+    if (meaning.dataset.comparisonIndex === String(index)) applyComparisonColor(meaning, index);
   }
   refreshEntryColorControl(index);
 }
@@ -333,7 +340,7 @@ function setEntryComparisonColor(index, color) {
     if (!Object.keys(comparisonColorOverrides[result.pairKey]).length) delete comparisonColorOverrides[result.pairKey];
   }
   const persisted = persistComparisonColors();
-  refreshComparisonGlyphs(index);
+  refreshComparisonMeanings(index);
   const control = document.querySelector(".entry-color-control");
   if (control) {
     const note = control.querySelector(".entry-color-note");
@@ -363,7 +370,7 @@ function makeEntryColorControl(index) {
   control.className = "entry-color-control";
   control.dataset.entryIndex = String(index);
   const heading = document.createElement("strong");
-  heading.textContent = "此字对比底色";
+  heading.textContent = "此字释义对比底色";
   const status = document.createElement("span");
   status.className = "entry-color-status";
   const actions = document.createElement("div");
@@ -373,7 +380,7 @@ function makeEntryColorControl(index) {
     const swatch = button(name, "entry-color-swatch", () => setEntryComparisonColor(index, color));
     swatch.dataset.color = color;
     swatch.style.backgroundColor = color;
-    swatch.setAttribute("aria-label", `将此字标为${name}`);
+    swatch.setAttribute("aria-label", `将此字释义标为${name}`);
     actions.append(swatch);
   }
   const label = document.createElement("label");
@@ -382,7 +389,7 @@ function makeEntryColorControl(index) {
   const picker = document.createElement("input");
   picker.type = "color";
   picker.className = "entry-color-picker";
-  picker.setAttribute("aria-label", "自选此字的对比底色");
+  picker.setAttribute("aria-label", "自选此字释义的对比底色");
   picker.addEventListener("input", () => setEntryComparisonColor(index, picker.value));
   label.append(picker);
   actions.append(label, button("恢复自动", "clear-button entry-color-reset", () => setEntryComparisonColor(index, null)));
@@ -397,6 +404,9 @@ function makeEntryColorControl(index) {
 function makeComparisonLegend() {
   const legend = document.createElement("div");
   legend.className = "comparison-legend";
+  const heading = document.createElement("span");
+  heading.textContent = "释义底色：";
+  legend.append(heading);
   for (const [category, text] of [["exact", "完全相同"], ["similar", "相似度 ≥ 50%"], ["different", "不同"]]) {
     const item = document.createElement("span");
     item.className = "comparison-legend-item";
@@ -407,7 +417,7 @@ function makeComparisonLegend() {
   }
   const note = document.createElement("span");
   note.className = "comparison-legend-note";
-  note.textContent = "均未填写不着色；点进单字可手动改色。";
+  note.textContent = "均未填写不着色；点进单字可手动修改释义底色。";
   note.title = "文字相似度 = 1 − 编辑距离 / 较长释义的字数；忽略首尾空白。两边都未填写或只填问号时不着色。";
   legend.append(note);
   return legend;
@@ -420,7 +430,6 @@ function decipheredCount() {
 function markGlyphContainer(element, index) {
   element.dataset.glyphIndex = String(index);
   if (highlightUndeciphered && !isDecipheredIndex(index)) element.classList.add("undeciphered-highlight");
-  applyComparisonColor(element, index);
   return element;
 }
 
@@ -453,11 +462,13 @@ function makePersonalCaption(indexOrIndexes, className) {
         part.classList.add("missing");
         part.textContent = "?";
       }
+      if (indexes.length > 1) markComparisonMeaning(part, index);
       content.append(part);
     });
     row.append(content);
     label.append(row);
   });
+  if (indexes.length === 1) markComparisonMeaning(label, indexes[0]);
   return label;
 }
 
@@ -475,7 +486,7 @@ function refreshMeaningCaptions(profile, index) {
       if (glyph.dataset.glyphIndex === String(index)) glyph.classList.toggle("undeciphered-highlight", highlightUndeciphered && !deciphered);
     }
   }
-  refreshComparisonGlyphs(index);
+  refreshComparisonMeanings(index);
 }
 
 function withPersonalCaption(container, indexOrIndexes, variant) {
@@ -483,7 +494,6 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
   const index = indexes[0];
   if (indexes.length === 1) {
     container.dataset.glyphIndex = String(index);
-    applyComparisonColor(container, index);
   }
   if (!showPersonalMeanings) return container;
   const stack = document.createElement("span");
@@ -498,6 +508,7 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
       editor.maxLength = 300;
       editor.value = profileMeaningForIndex(profile, index);
       editor.dataset.saveId = profile.id;
+      markComparisonMeaning(editor, index);
       editor.placeholder = "?";
       editor.title = "保存在此浏览器，不会写回游戏存档";
       editor.setAttribute("aria-label", profiles.length === 2 ? `编辑存档 ${rowIndex + 1} 的个人释义` : "编辑这个字的个人释义");
@@ -527,7 +538,6 @@ function withPersonalCaption(container, indexOrIndexes, variant) {
     return stack;
   }
   const label = makePersonalCaption(indexes, "inline-personal-meaning");
-  if (variant === "mini") markGlyphContainer(label, index);
   stack.append(container, label);
   return stack;
 }
@@ -929,7 +939,7 @@ function makeGlyphCard(index) {
 function makeNotWordKey() {
   const key = document.createElement("span");
   key.className = "not-word-key";
-  key.textContent = compareSaves ? "黄边：非正式字" : "黄底：非正式字";
+  key.textContent = "黄底：非正式字";
   key.title = "游戏里写出其不是字";
   return key;
 }
@@ -937,7 +947,7 @@ function makeNotWordKey() {
 function makeStartupOnlyKey() {
   const key = document.createElement("span");
   key.className = "startup-only-key";
-  key.textContent = compareSaves ? "绿边：仅启动左页可达" : "绿底：仅启动左页可达";
+  key.textContent = "绿底：仅启动左页可达";
   key.title = "游戏开始时左边会有一个问好页，只能通过这个页进入该字";
   return key;
 }

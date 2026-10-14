@@ -212,8 +212,25 @@ button:focus-visible,
   padding-top: 0.22rem;
 }
 
-.comparison-colored:not(.undeciphered-highlight):not(.occurrence-target-glyph) {
-  background: var(--comparison-background) !important;
+.comparison-meaning.comparison-colored {
+  background: var(--comparison-background);
+}
+
+.personal-meaning-label.comparison-colored,
+.writer-candidate-caption.comparison-colored {
+  width: 100%;
+  border-radius: 0.35rem;
+  padding: 0.18rem 0.12rem;
+}
+
+.personal-meaning-part.comparison-colored {
+  border-radius: 0.2rem;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.personal-meaning-part.comparison-colored.missing {
+  opacity: 1;
 }
 
 .target-save-editor {
