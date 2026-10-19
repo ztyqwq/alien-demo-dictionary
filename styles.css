@@ -894,7 +894,7 @@ h2 {
   display: block;
   width: 100%;
   height: 100%;
-  background-image: url("glyph-atlas.png");
+  background-image: url("glyph-atlas.png?v=c093d13f9b1c");
   background-repeat: no-repeat;
   image-rendering: auto;
 }

@@ -87,7 +87,7 @@ function loadPersonalState() {
   const validTokens = new Set(data.save_key_tokens);
   const cleanMeanings = (raw) => new Map(
     Object.entries(raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}).filter(([token, value]) => (
-      validTokens.has(token) && typeof value === "string" && value.length > 0
+      (validTokens.has(token) || /^[0-9a-f]{16}$/.test(token)) && typeof value === "string" && value.length > 0
     )),
   );
   try {
@@ -221,7 +221,7 @@ function loadComparisonColors() {
           try { ids = JSON.parse(key); } catch { continue; }
           if (!Array.isArray(ids) || ids.length !== 2 || ids[0] === ids[1] || !ids.every((id) => validProfiles.has(id))) continue;
           if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) continue;
-          const clean = Object.fromEntries(Object.entries(overrides).filter(([token, color]) => validTokens.has(token) && validColor(color)));
+          const clean = Object.fromEntries(Object.entries(overrides).filter(([token, color]) => (validTokens.has(token) || /^[0-9a-f]{16}$/.test(token)) && validColor(color)));
           if (Object.keys(clean).length) comparisonColorOverrides[JSON.stringify(ids.sort())] = clean;
         }
       }
@@ -842,7 +842,7 @@ function renderSaveProfileControls() {
       select.setAttribute("aria-label", labelText);
       for (const profile of profiles) {
         const option = document.createElement("option");
-        const recognized = [...profile.meanings.values()].filter(isDecipheredMeaning).length;
+        const recognized = data.save_key_tokens.filter((token) => isDecipheredMeaning(profile.meanings.get(token))).length;
         option.value = profile.id;
         option.textContent = `${profile.name}（${recognized}/${data.count}）`;
         select.append(option);
@@ -1953,7 +1953,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=ad48e478cb04")
+fetch("data/app-data.json?v=cd69439fd6cc")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
