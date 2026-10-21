@@ -1699,6 +1699,8 @@ function makePathFlow(path, dictionaryChain = []) {
     chip.dataset.actionKind = action.kind;
     if (action.kind === "write_note") {
       chip.title = "在游戏里给前一个字填写有效注释，并确认保存；不是修改本网站的释义。";
+    } else if (action.kind === "toggle_word_mark") {
+      chip.title = "点击游戏中单字页底部的这个按钮，切换后会出现目标字；若已显示目标字，可直接右键查字。";
     }
     nodes.push(chip);
   }
@@ -1737,8 +1739,14 @@ function makeOccurrenceSource(sourceRecord, position, total) {
   if (sourceRecord.kind === "dictionary_entry") {
     const sourceType = document.createElement("span");
     sourceType.className = "occurrence-source-type";
-    sourceType.textContent = "单字页";
+    sourceType.textContent = sourceRecord.state === "marked_footer" ? "任意单字页（示例）" : "单字页";
     source.append(sourceType, makeDictionaryGlyph(sourceRecord.entry));
+    if (sourceRecord.state === "marked_footer") {
+      const state = document.createElement("span");
+      state.className = "occurrence-source-state";
+      state.textContent = "底部按钮切换后出现";
+      source.append(state);
+    }
   } else {
     const sourceType = document.createElement("span");
     sourceType.className = "occurrence-source-type";
@@ -1966,7 +1974,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=38cc10da2311")
+fetch("data/app-data.json?v=94685d1f69c9")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
