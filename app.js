@@ -1694,7 +1694,14 @@ function makePathFlow(path, dictionaryChain = []) {
   start.className = "path-chip start";
   start.textContent = path.start === "startup_left" ? "启动时左页" : "右侧首页";
   const nodes = [start];
-  for (const action of path.actions) nodes.push(chipFromParts("left", action.label));
+  for (const action of path.actions) {
+    const chip = chipFromParts(action.kind === "lookup_glyph" ? "right" : "left", action.label);
+    chip.dataset.actionKind = action.kind;
+    if (action.kind === "write_note") {
+      chip.title = "在游戏里给前一个字填写有效注释，并确认保存；不是修改本网站的释义。";
+    }
+    nodes.push(chip);
+  }
   for (const glyph of dictionaryChain) nodes.push(chipFromParts("right", [{ glyph }]));
   nodes.forEach((node, index) => {
     if (index > 0) {
@@ -1706,6 +1713,12 @@ function makePathFlow(path, dictionaryChain = []) {
     }
     flow.append(node);
   });
+  if (path.actions.some((action) => action.kind === "write_note")) {
+    const note = document.createElement("span");
+    note.className = "path-instruction-note";
+    note.textContent = "“填写注释”指在游戏中给前一个字写入非空、非问号的注释并确认，使内置字典显示相应分类；输入文字不另计点击。";
+    flow.append(note);
+  }
   return flow;
 }
 
@@ -1953,7 +1966,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=7cdec4c60742")
+fetch("data/app-data.json?v=38cc10da2311")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
