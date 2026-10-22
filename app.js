@@ -1974,7 +1974,7 @@ window.addEventListener("popstate", (event) => {
   render();
 });
 
-fetch("data/app-data.json?v=94685d1f69c9")
+fetch("data/app-data.json?v=e96802bd4fb2")
   .then((response) => {
     if (!response.ok) throw new Error("字典数据无法读取");
     return response.json();
